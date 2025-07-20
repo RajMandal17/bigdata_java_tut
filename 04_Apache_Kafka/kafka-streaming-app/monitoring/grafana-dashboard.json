@@ -1,0 +1,233 @@
+# Grafana Dashboard Configuration for Kafka Monitoring
+# This JSON defines a comprehensive dashboard for monitoring Kafka and the streaming application
+
+{
+  "dashboard": {
+    "id": null,
+    "title": "Kafka Streaming Application Dashboard",
+    "tags": ["kafka", "streaming", "bigdata"],
+    "timezone": "browser",
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "System Overview",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 24, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "up{job=\"kafka-streaming-app\"}",
+            "legendFormat": "Application Status"
+          },
+          {
+            "expr": "up{job=\"kafka-broker\"}",
+            "legendFormat": "Kafka Broker Status"
+          },
+          {
+            "expr": "up{job=\"postgres\"}",
+            "legendFormat": "Database Status"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"options": {"0": {"text": "DOWN"}}, "type": "value"},
+              {"options": {"1": {"text": "UP"}}, "type": "value"}
+            ]
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Transaction Processing Rate",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+        "targets": [
+          {
+            "expr": "rate(transactions_processed_total[5m])",
+            "legendFormat": "Transactions/sec"
+          }
+        ],
+        "yAxes": [
+          {"label": "Transactions per second", "min": 0}
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Fraud Detection Rate",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+        "targets": [
+          {
+            "expr": "rate(fraud_detections_total[5m])",
+            "legendFormat": "Fraud Detections/sec"
+          }
+        ],
+        "yAxes": [
+          {"label": "Detections per second", "min": 0}
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Kafka Producer Metrics",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 12},
+        "targets": [
+          {
+            "expr": "kafka_producer_request_latency_avg",
+            "legendFormat": "Avg Latency (ms)"
+          },
+          {
+            "expr": "rate(kafka_producer_records_sent_total[5m])",
+            "legendFormat": "Records Sent/sec"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Kafka Consumer Metrics",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 12},
+        "targets": [
+          {
+            "expr": "kafka_consumer_lag_sum",
+            "legendFormat": "Consumer Lag"
+          },
+          {
+            "expr": "rate(kafka_consumer_records_consumed_total[5m])",
+            "legendFormat": "Records Consumed/sec"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "JVM Memory Usage",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 12},
+        "targets": [
+          {
+            "expr": "jvm_memory_used_bytes / jvm_memory_max_bytes * 100",
+            "legendFormat": "Memory Usage %"
+          }
+        ],
+        "yAxes": [
+          {"label": "Percentage", "min": 0, "max": 100}
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Database Transaction Stats",
+        "type": "table",
+        "gridPos": {"h": 6, "w": 12, "x": 0, "y": 20},
+        "targets": [
+          {
+            "expr": "pg_stat_database_xact_commit",
+            "legendFormat": "Commits"
+          },
+          {
+            "expr": "pg_stat_database_xact_rollback",
+            "legendFormat": "Rollbacks"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Top Customer Spending",
+        "type": "table",
+        "gridPos": {"h": 6, "w": 12, "x": 12, "y": 20},
+        "targets": [
+          {
+            "expr": "customer_total_spending",
+            "legendFormat": "Customer {{customer_id}}"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Error Rate",
+        "type": "singlestat",
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 26},
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{status=~\"5..\"}[5m])",
+            "legendFormat": "Error Rate"
+          }
+        ],
+        "thresholds": "0.01,0.05",
+        "colors": ["green", "yellow", "red"]
+      },
+      {
+        "id": 10,
+        "title": "Dead Letter Queue Size",
+        "type": "singlestat",
+        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 26},
+        "targets": [
+          {
+            "expr": "kafka_consumer_dlq_messages_total",
+            "legendFormat": "DLQ Messages"
+          }
+        ],
+        "thresholds": "10,100",
+        "colors": ["green", "yellow", "red"]
+      },
+      {
+        "id": 11,
+        "title": "Alert Summary",
+        "type": "table",
+        "gridPos": {"h": 4, "w": 12, "x": 12, "y": 26},
+        "targets": [
+          {
+            "expr": "ALERTS{alertstate=\"firing\"}",
+            "legendFormat": "Active Alerts"
+          }
+        ]
+      },
+      {
+        "id": 12,
+        "title": "Kafka Streams Processing Latency",
+        "type": "graph",
+        "gridPos": {"h": 6, "w": 24, "x": 0, "y": 30},
+        "targets": [
+          {
+            "expr": "kafka_streams_thread_task_process_latency_avg",
+            "legendFormat": "Processing Latency (ms)"
+          },
+          {
+            "expr": "kafka_streams_thread_task_commit_latency_avg",
+            "legendFormat": "Commit Latency (ms)"
+          }
+        ]
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "instance",
+          "type": "query",
+          "query": "label_values(up, instance)",
+          "refresh": 1
+        },
+        {
+          "name": "topic",
+          "type": "query",
+          "query": "label_values(kafka_topic_partition_current_offset, topic)",
+          "refresh": 1
+        }
+      ]
+    },
+    "annotations": {
+      "list": [
+        {
+          "name": "Deployments",
+          "datasource": "Prometheus",
+          "expr": "deployment_events",
+          "textFormat": "Deployment: {{version}}"
+        }
+      ]
+    }
+  }
+}

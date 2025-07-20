@@ -1,0 +1,880 @@
+================================================================================
+                            APACHE KAFKA FOR BIG DATA
+================================================================================
+
+WEEK 7-8: Real-time Data Streaming with Apache Kafka
+
+================================================================================
+1. KAFKA FUNDAMENTALS
+================================================================================
+
+1.1 WHAT IS APACHE KAFKA?
+-------------------------
+Apache Kafka is a distributed streaming platform that can:
+• Publish and subscribe to streams of records (like a message queue)
+• Store streams of records in a fault-tolerant way
+• Process streams of records as they occur
+
+KEY CONCEPTS:
+- Producer: Applications that send data to Kafka
+- Consumer: Applications that read data from Kafka
+- Topic: Categories or feed names to which records are published
+- Partition: Topics are split into partitions for scalability
+- Broker: Kafka servers that store data
+- Cluster: Group of brokers working together
+
+1.2 KAFKA ARCHITECTURE:
+----------------------
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│  Producer   │───▶│   Broker    │◄───│  Consumer   │
+│Application  │    │  (Kafka     │    │ Application │
+└─────────────┘    │   Cluster)  │    └─────────────┘
+                   └─────────────┘
+                          │
+                   ┌─────────────┐
+                   │  ZooKeeper  │
+                   │ (Metadata)  │
+                   └─────────────┘
+
+BENEFITS FOR BIG DATA:
+✓ High throughput (millions of messages/second)
+✓ Low latency (sub-millisecond)
+✓ Fault tolerance and durability
+✓ Horizontal scalability
+✓ Real-time processing
+✓ Decoupling of data producers and consumers
+
+================================================================================
+2. KAFKA INSTALLATION AND SETUP
+================================================================================
+
+2.1 DOCKER SETUP (RECOMMENDED):
+
+# docker-compose.yml
+version: '3.8'
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    hostname: zookeeper
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    hostname: kafka
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_METRIC_REPORTERS: io.confluent.metrics.reporter.ConfluentMetricsReporter
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    depends_on:
+      - kafka
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+
+# Start the services
+docker-compose up -d
+
+2.2 PRODUCTION CONFIGURATION:
+
+# server.properties for production
+# Broker settings
+broker.id=1
+listeners=PLAINTEXT://0.0.0.0:9092
+advertised.listeners=PLAINTEXT://your-server:9092
+num.network.threads=8
+num.io.threads=16
+socket.send.buffer.bytes=102400
+socket.receive.buffer.bytes=102400
+socket.request.max.bytes=104857600
+
+# Log settings
+log.dirs=/var/kafka-logs
+num.partitions=6
+default.replication.factor=3
+min.insync.replicas=2
+log.retention.hours=168
+log.segment.bytes=1073741824
+log.retention.check.interval.ms=300000
+
+# Memory and performance
+heap.size=8g
+log.flush.interval.messages=10000
+log.flush.interval.ms=1000
+
+================================================================================
+3. SPRING BOOT KAFKA INTEGRATION
+================================================================================
+
+3.1 DEPENDENCIES:
+
+<!-- pom.xml -->
+<dependency>
+    <groupId>org.springframework.kafka</groupId>
+    <artifactId>spring-kafka</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.apache.kafka</groupId>
+    <artifactId>kafka-streams</artifactId>
+</dependency>
+
+3.2 KAFKA CONFIGURATION:
+
+@Configuration
+@EnableKafka
+public class KafkaConfig {
+    
+    @Value("${spring.kafka.bootstrap-servers}")
+    private String bootstrapServers;
+    
+    // Producer Configuration
+    @Bean
+    public ProducerFactory<String, Object> producerFactory() {
+        Map<String, Object> props = new HashMap<>();
+        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, JsonSerializer.class);
+        
+        // Performance optimizations
+        props.put(ProducerConfig.ACKS_CONFIG, "1");              // Wait for leader acknowledgment
+        props.put(ProducerConfig.RETRIES_CONFIG, 3);             // Retry failed sends
+        props.put(ProducerConfig.BATCH_SIZE_CONFIG, 16384);      // Batch size in bytes
+        props.put(ProducerConfig.LINGER_MS_CONFIG, 5);           // Wait time for batching
+        props.put(ProducerConfig.BUFFER_MEMORY_CONFIG, 33554432); // Total memory for buffering
+        props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "snappy"); // Compression
+        
+        return new DefaultKafkaProducerFactory<>(props);
+    }
+    
+    @Bean
+    public KafkaTemplate<String, Object> kafkaTemplate() {
+        return new KafkaTemplate<>(producerFactory());
+    }
+    
+    // Consumer Configuration
+    @Bean
+    public ConsumerFactory<String, Object> consumerFactory() {
+        Map<String, Object> props = new HashMap<>();
+        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, "bigdata-group");
+        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, JsonDeserializer.class);
+        
+        // Consumer optimizations
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false); // Manual commit for reliability
+        props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 500);     // Records per poll
+        props.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, 1024);     // Minimum fetch size
+        props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, 500);    // Maximum wait time
+        
+        // JSON configuration
+        props.put(JsonDeserializer.TRUSTED_PACKAGES, "com.bigdata.model");
+        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, "com.bigdata.model.Event");
+        
+        return new DefaultKafkaConsumerFactory<>(props);
+    }
+    
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, Object> kafkaListenerContainerFactory() {
+        ConcurrentKafkaListenerContainerFactory<String, Object> factory = 
+            new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(consumerFactory());
+        
+        // Concurrency settings
+        factory.setConcurrency(3); // Number of consumer threads
+        
+        // Manual acknowledgment
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+        
+        // Error handling
+        factory.setCommonErrorHandler(new DefaultErrorHandler(
+            new FixedBackOff(1000L, 3))); // Retry 3 times with 1 second delay
+        
+        return factory;
+    }
+}
+
+3.3 APPLICATION CONFIGURATION:
+
+# application.yml
+spring:
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      retries: 3
+      batch-size: 16384
+      buffer-memory: 33554432
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      group-id: bigdata-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "com.bigdata.model"
+        spring.json.value.default.type: "com.bigdata.model.Event"
+
+# Topic configurations
+kafka:
+  topics:
+    transactions: transactions-topic
+    events: events-topic
+    alerts: alerts-topic
+    analytics: analytics-topic
+
+================================================================================
+4. PRODUCING MESSAGES
+================================================================================
+
+4.1 DATA MODELS:
+
+public class TransactionEvent {
+    private String transactionId;
+    private String customerId;
+    private BigDecimal amount;
+    private String category;
+    private LocalDateTime timestamp;
+    private String status;
+    private Map<String, Object> metadata;
+    
+    // Constructors, getters, setters
+}
+
+public class UserEvent {
+    private String userId;
+    private String eventType;
+    private LocalDateTime timestamp;
+    private Map<String, Object> data;
+    private String sessionId;
+    
+    // Constructors, getters, setters
+}
+
+4.2 KAFKA PRODUCER SERVICE:
+
+@Service
+public class KafkaProducerService {
+    
+    private static final Logger logger = LoggerFactory.getLogger(KafkaProducerService.class);
+    
+    @Autowired
+    private KafkaTemplate<String, Object> kafkaTemplate;
+    
+    @Value("${kafka.topics.transactions}")
+    private String transactionsTopic;
+    
+    @Value("${kafka.topics.events}")
+    private String eventsTopic;
+    
+    public void sendTransactionEvent(TransactionEvent event) {
+        try {
+            // Send with partition key for ordering
+            ListenableFuture<SendResult<String, Object>> future = 
+                kafkaTemplate.send(transactionsTopic, event.getCustomerId(), event);
+            
+            future.addCallback(
+                result -> logger.info("Transaction event sent successfully: {}", 
+                                    event.getTransactionId()),
+                failure -> logger.error("Failed to send transaction event: {}", 
+                                      event.getTransactionId(), failure)
+            );
+        } catch (Exception e) {
+            logger.error("Error sending transaction event", e);
+            throw new MessagingException("Failed to send transaction event", e);
+        }
+    }
+    
+    public void sendUserEvent(UserEvent event) {
+        try {
+            // Send to specific partition based on user ID
+            int partition = Math.abs(event.getUserId().hashCode()) % 3;
+            
+            kafkaTemplate.send(eventsTopic, partition, event.getUserId(), event)
+                .addCallback(
+                    result -> logger.debug("User event sent: {}", event.getEventType()),
+                    failure -> logger.error("Failed to send user event", failure)
+                );
+        } catch (Exception e) {
+            logger.error("Error sending user event", e);
+        }
+    }
+    
+    @Async
+    public CompletableFuture<Void> sendBatchEvents(List<UserEvent> events) {
+        List<CompletableFuture<SendResult<String, Object>>> futures = new ArrayList<>();
+        
+        for (UserEvent event : events) {
+            CompletableFuture<SendResult<String, Object>> future = 
+                kafkaTemplate.send(eventsTopic, event.getUserId(), event)
+                    .completable();
+            futures.add(future);
+        }
+        
+        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+    }
+    
+    // Send alerts with high priority
+    public void sendAlert(String alertType, Map<String, Object> data) {
+        AlertEvent alert = AlertEvent.builder()
+            .alertId(UUID.randomUUID().toString())
+            .type(alertType)
+            .timestamp(LocalDateTime.now())
+            .data(data)
+            .priority("HIGH")
+            .build();
+            
+        kafkaTemplate.send("alerts-topic", alert.getAlertId(), alert);
+    }
+}
+
+4.3 INTEGRATION WITH BUSINESS LOGIC:
+
+@Service
+@Transactional
+public class TransactionService {
+    
+    @Autowired
+    private TransactionRepository transactionRepository;
+    
+    @Autowired
+    private KafkaProducerService kafkaProducer;
+    
+    public Transaction processTransaction(TransactionRequest request) {
+        // Save to database
+        Transaction transaction = new Transaction();
+        transaction.setCustomerId(request.getCustomerId());
+        transaction.setAmount(request.getAmount());
+        transaction.setCategory(request.getCategory());
+        transaction.setStatus(TransactionStatus.PENDING);
+        
+        Transaction saved = transactionRepository.save(transaction);
+        
+        // Send to Kafka for real-time processing
+        TransactionEvent event = TransactionEvent.builder()
+            .transactionId(saved.getId().toString())
+            .customerId(saved.getCustomerId())
+            .amount(saved.getAmount())
+            .category(saved.getCategory())
+            .timestamp(LocalDateTime.now())
+            .status(saved.getStatus().name())
+            .build();
+            
+        kafkaProducer.sendTransactionEvent(event);
+        
+        // Send alert for high-value transactions
+        if (saved.getAmount().compareTo(new BigDecimal("10000")) > 0) {
+            Map<String, Object> alertData = new HashMap<>();
+            alertData.put("transactionId", saved.getId());
+            alertData.put("amount", saved.getAmount());
+            alertData.put("customerId", saved.getCustomerId());
+            
+            kafkaProducer.sendAlert("HIGH_VALUE_TRANSACTION", alertData);
+        }
+        
+        return saved;
+    }
+}
+
+================================================================================
+5. CONSUMING MESSAGES
+================================================================================
+
+5.1 BASIC CONSUMER:
+
+@Component
+public class TransactionEventConsumer {
+    
+    private static final Logger logger = LoggerFactory.getLogger(TransactionEventConsumer.class);
+    
+    @Autowired
+    private TransactionProcessingService processingService;
+    
+    @KafkaListener(topics = "${kafka.topics.transactions}", groupId = "transaction-processors")
+    public void consumeTransactionEvent(
+            @Payload TransactionEvent event,
+            @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
+            @Header(KafkaHeaders.RECEIVED_PARTITION_ID) int partition,
+            @Header(KafkaHeaders.OFFSET) long offset,
+            Acknowledgment acknowledgment) {
+        
+        try {
+            logger.info("Received transaction event: {} from partition: {}, offset: {}", 
+                       event.getTransactionId(), partition, offset);
+            
+            // Process the transaction
+            processingService.processTransaction(event);
+            
+            // Manual acknowledgment
+            acknowledgment.acknowledge();
+            
+        } catch (Exception e) {
+            logger.error("Error processing transaction event: {}", 
+                        event.getTransactionId(), e);
+            // Don't acknowledge - message will be retried
+        }
+    }
+}
+
+5.2 BATCH CONSUMER:
+
+@Component
+public class BatchEventConsumer {
+    
+    private static final Logger logger = LoggerFactory.getLogger(BatchEventConsumer.class);
+    
+    @KafkaListener(
+        topics = "${kafka.topics.events}",
+        groupId = "batch-processors",
+        containerFactory = "batchListenerContainerFactory"
+    )
+    public void consumeBatchEvents(
+            List<ConsumerRecord<String, UserEvent>> records,
+            Acknowledgment acknowledgment) {
+        
+        logger.info("Received batch of {} events", records.size());
+        
+        try {
+            List<UserEvent> events = records.stream()
+                .map(ConsumerRecord::value)
+                .collect(Collectors.toList());
+            
+            // Process batch
+            processBatchEvents(events);
+            
+            acknowledgment.acknowledge();
+            
+        } catch (Exception e) {
+            logger.error("Error processing batch events", e);
+        }
+    }
+    
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, Object> batchListenerContainerFactory() {
+        ConcurrentKafkaListenerContainerFactory<String, Object> factory = 
+            new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(consumerFactory());
+        factory.setBatchListener(true);
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+        return factory;
+    }
+}
+
+5.3 CONDITIONAL CONSUMERS:
+
+@Component
+public class ConditionalEventConsumer {
+    
+    @KafkaListener(
+        topics = "${kafka.topics.events}",
+        groupId = "analytics-group",
+        condition = "#{environment['analytics.enabled'] == 'true'}"
+    )
+    public void consumeForAnalytics(UserEvent event) {
+        // Process only when analytics is enabled
+        analyticsService.processEvent(event);
+    }
+    
+    @KafkaListener(
+        topics = "${kafka.topics.transactions}",
+        groupId = "fraud-detection",
+        containerFactory = "fraudDetectionListenerFactory"
+    )
+    public void detectFraud(
+            TransactionEvent event,
+            @Header("X-Source-System") String sourceSystem) {
+        
+        if ("mobile-app".equals(sourceSystem)) {
+            fraudDetectionService.analyzeMobileTransaction(event);
+        }
+    }
+}
+
+================================================================================
+6. KAFKA STREAMS PROCESSING
+================================================================================
+
+6.1 STREAMS CONFIGURATION:
+
+@Configuration
+@EnableKafkaStreams
+public class KafkaStreamsConfig {
+    
+    @Value("${spring.kafka.bootstrap-servers}")
+    private String bootstrapServers;
+    
+    @Bean(name = KafkaStreamsDefaultConfiguration.DEFAULT_STREAMS_CONFIG_BEAN_NAME)
+    public KafkaStreamsConfiguration kafkaStreamsConfig() {
+        Map<String, Object> props = new HashMap<>();
+        props.put(StreamsConfig.APPLICATION_ID_CONFIG, "bigdata-streams");
+        props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        props.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, Serdes.String().getClass());
+        props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, JsonSerde.class);
+        props.put(StreamsConfig.NUM_STREAM_THREADS_CONFIG, 3);
+        props.put(StreamsConfig.COMMIT_INTERVAL_MS_CONFIG, 1000);
+        
+        return new KafkaStreamsConfiguration(props);
+    }
+}
+
+6.2 STREAM PROCESSING TOPOLOGY:
+
+@Component
+public class TransactionStreamsProcessor {
+    
+    private static final Logger logger = LoggerFactory.getLogger(TransactionStreamsProcessor.class);
+    
+    @Autowired
+    public void processTransactionStreams(StreamsBuilder builder) {
+        
+        // Input stream
+        KStream<String, TransactionEvent> transactions = builder
+            .stream("transactions-topic", Consumed.with(Serdes.String(), new JsonSerde<>(TransactionEvent.class)));
+        
+        // Filter high-value transactions
+        KStream<String, TransactionEvent> highValueTransactions = transactions
+            .filter((key, transaction) -> 
+                transaction.getAmount().compareTo(new BigDecimal("1000")) > 0);
+        
+        // Transform and enrich
+        KStream<String, EnrichedTransaction> enrichedTransactions = highValueTransactions
+            .mapValues(this::enrichTransaction);
+        
+        // Aggregate by customer and time window
+        KTable<Windowed<String>, Double> customerSpending = transactions
+            .groupByKey()
+            .windowedBy(TimeWindows.of(Duration.ofMinutes(5)))
+            .aggregate(
+                () -> 0.0,
+                (key, transaction, aggregate) -> 
+                    aggregate + transaction.getAmount().doubleValue(),
+                Materialized.with(Serdes.String(), Serdes.Double())
+            );
+        
+        // Detect spending anomalies
+        customerSpending
+            .toStream()
+            .filter((windowedKey, amount) -> amount > 10000.0)
+            .mapValues((windowedKey, amount) -> AlertEvent.builder()
+                .alertId(UUID.randomUUID().toString())
+                .type("HIGH_SPENDING_DETECTED")
+                .customerId(windowedKey.key())
+                .amount(amount)
+                .windowStart(windowedKey.window().start())
+                .windowEnd(windowedKey.window().end())
+                .build())
+            .to("alerts-topic", Produced.with(WindowedSerdes.timeWindowedSerdeFrom(String.class), 
+                                            new JsonSerde<>(AlertEvent.class)));
+        
+        // Join with customer data
+        KTable<String, CustomerData> customers = builder
+            .table("customers-topic", Consumed.with(Serdes.String(), new JsonSerde<>(CustomerData.class)));
+        
+        KStream<String, TransactionWithCustomer> transactionsWithCustomer = transactions
+            .join(customers, this::joinTransactionWithCustomer);
+        
+        // Output enriched data
+        transactionsWithCustomer.to("enriched-transactions-topic");
+    }
+    
+    private EnrichedTransaction enrichTransaction(TransactionEvent transaction) {
+        return EnrichedTransaction.builder()
+            .transactionId(transaction.getTransactionId())
+            .customerId(transaction.getCustomerId())
+            .amount(transaction.getAmount())
+            .category(transaction.getCategory())
+            .timestamp(transaction.getTimestamp())
+            .riskScore(calculateRiskScore(transaction))
+            .merchantInfo(getMerchantInfo(transaction))
+            .build();
+    }
+    
+    private TransactionWithCustomer joinTransactionWithCustomer(
+            TransactionEvent transaction, CustomerData customer) {
+        return TransactionWithCustomer.builder()
+            .transaction(transaction)
+            .customer(customer)
+            .customerTier(customer.getTier())
+            .loyaltyPoints(customer.getLoyaltyPoints())
+            .build();
+    }
+}
+
+6.3 INTERACTIVE QUERIES:
+
+@RestController
+@RequestMapping("/api/streams")
+public class StreamsQueryController {
+    
+    @Autowired
+    private KafkaStreams kafkaStreams;
+    
+    @GetMapping("/customer-spending/{customerId}")
+    public ResponseEntity<Map<String, Object>> getCustomerSpending(
+            @PathVariable String customerId) {
+        
+        ReadOnlyWindowStore<String, Double> store = kafkaStreams
+            .store(StoreQueryParameters.fromNameAndType(
+                "customer-spending-store", 
+                QueryableStoreTypes.windowStore()));
+        
+        Instant now = Instant.now();
+        Instant hourAgo = now.minus(Duration.ofHours(1));
+        
+        Map<String, Object> result = new HashMap<>();
+        double totalSpending = 0.0;
+        
+        try (WindowStoreIterator<Double> iterator = store.fetch(customerId, hourAgo, now)) {
+            while (iterator.hasNext()) {
+                KeyValue<Long, Double> record = iterator.next();
+                totalSpending += record.value;
+            }
+        }
+        
+        result.put("customerId", customerId);
+        result.put("totalSpending", totalSpending);
+        result.put("timeWindow", "last-hour");
+        
+        return ResponseEntity.ok(result);
+    }
+}
+
+================================================================================
+7. ERROR HANDLING AND RETRY MECHANISMS
+================================================================================
+
+7.1 PRODUCER ERROR HANDLING:
+
+@Component
+public class KafkaProducerErrorHandler {
+    
+    private static final Logger logger = LoggerFactory.getLogger(KafkaProducerErrorHandler.class);
+    
+    @Autowired
+    private KafkaTemplate<String, Object> kafkaTemplate;
+    
+    @Retryable(
+        value = {Exception.class},
+        maxAttempts = 3,
+        backoff = @Backoff(delay = 1000, multiplier = 2)
+    )
+    public void sendWithRetry(String topic, String key, Object value) {
+        try {
+            kafkaTemplate.send(topic, key, value).get(5, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            logger.error("Failed to send message to topic: {}, key: {}", topic, key, e);
+            throw new MessagingException("Message send failed", e);
+        }
+    }
+    
+    @Recover
+    public void recover(Exception e, String topic, String key, Object value) {
+        logger.error("All retry attempts failed for topic: {}, key: {}", topic, key);
+        // Send to dead letter queue or save to database
+        deadLetterService.saveFailedMessage(topic, key, value, e.getMessage());
+    }
+}
+
+7.2 CONSUMER ERROR HANDLING:
+
+@Component
+public class KafkaConsumerErrorHandler implements ConsumerAwareListenerErrorHandler {
+    
+    private static final Logger logger = LoggerFactory.getLogger(KafkaConsumerErrorHandler.class);
+    
+    @Override
+    public Object handleError(Message<?> message, ListenerExecutionFailedException exception,
+                            Consumer<?, ?> consumer) {
+        
+        ConsumerRecord<?, ?> record = (ConsumerRecord<?, ?>) message.getPayload();
+        
+        logger.error("Error processing message from topic: {}, partition: {}, offset: {}",
+                    record.topic(), record.partition(), record.offset(), exception);
+        
+        // Determine if error is recoverable
+        if (isRecoverableError(exception)) {
+            // Seek to retry the message
+            TopicPartition topicPartition = new TopicPartition(record.topic(), record.partition());
+            consumer.seek(topicPartition, record.offset());
+        } else {
+            // Send to dead letter topic
+            sendToDeadLetterTopic(record);
+        }
+        
+        return null;
+    }
+    
+    private boolean isRecoverableError(Exception e) {
+        return !(e instanceof DataFormatException || 
+                e instanceof ValidationException);
+    }
+    
+    private void sendToDeadLetterTopic(ConsumerRecord<?, ?> record) {
+        String deadLetterTopic = record.topic() + "-dlt";
+        kafkaTemplate.send(deadLetterTopic, record.key(), record.value());
+    }
+}
+
+7.3 DEAD LETTER QUEUE PROCESSING:
+
+@Component
+public class DeadLetterQueueProcessor {
+    
+    @KafkaListener(topics = "#{T(java.util.Arrays).asList('transactions-topic-dlt', 'events-topic-dlt')}")
+    public void processDeadLetterMessages(
+            ConsumerRecord<String, Object> record,
+            @Header(KafkaHeaders.RECEIVED_TOPIC) String topic) {
+        
+        logger.warn("Processing dead letter message from topic: {}", topic);
+        
+        // Try to process with different strategy
+        try {
+            if (topic.contains("transactions")) {
+                processFailedTransaction(record);
+            } else if (topic.contains("events")) {
+                processFailedEvent(record);
+            }
+        } catch (Exception e) {
+            // Log and store for manual intervention
+            logger.error("Failed to process dead letter message", e);
+            storeForManualProcessing(record, e);
+        }
+    }
+}
+
+================================================================================
+8. MONITORING AND METRICS
+================================================================================
+
+8.1 KAFKA METRICS:
+
+@Component
+public class KafkaMetricsCollector {
+    
+    private final MeterRegistry meterRegistry;
+    
+    public KafkaMetricsCollector(MeterRegistry meterRegistry) {
+        this.meterRegistry = meterRegistry;
+    }
+    
+    @EventListener
+    public void onProducerSend(ProducerSendEvent event) {
+        Timer.Sample sample = Timer.start(meterRegistry);
+        sample.stop(Timer.builder("kafka.producer.send.time")
+                   .tag("topic", event.getTopic())
+                   .register(meterRegistry));
+    }
+    
+    @EventListener
+    public void onConsumerProcess(ConsumerProcessEvent event) {
+        Counter.builder("kafka.consumer.messages.processed")
+               .tag("topic", event.getTopic())
+               .tag("status", event.getStatus())
+               .register(meterRegistry)
+               .increment();
+    }
+}
+
+8.2 HEALTH CHECKS:
+
+@Component
+public class KafkaHealthIndicator implements HealthIndicator {
+    
+    @Autowired
+    private KafkaTemplate<String, Object> kafkaTemplate;
+    
+    @Override
+    public Health health() {
+        try {
+            // Send a test message
+            kafkaTemplate.send("health-check-topic", "ping", "health-check")
+                        .get(5, TimeUnit.SECONDS);
+            
+            return Health.up()
+                        .withDetail("kafka", "Available")
+                        .withDetail("timestamp", Instant.now())
+                        .build();
+        } catch (Exception e) {
+            return Health.down()
+                        .withDetail("kafka", "Unavailable")
+                        .withException(e)
+                        .build();
+        }
+    }
+}
+
+================================================================================
+9. PRACTICAL EXERCISES
+================================================================================
+
+EXERCISE 1: Basic Producer/Consumer
+----------------------------------
+Build a system that:
+1. Produces transaction events to Kafka
+2. Consumes and processes these events
+3. Implements proper error handling
+4. Adds monitoring and metrics
+
+EXERCISE 2: Stream Processing
+---------------------------
+Create a Kafka Streams application that:
+1. Processes real-time transaction data
+2. Detects fraud patterns
+3. Calculates customer metrics
+4. Generates alerts
+
+EXERCISE 3: Integration Project
+-----------------------------
+Build an end-to-end system:
+1. REST API produces events to Kafka
+2. Multiple consumers process different aspects
+3. Results stored in databases
+4. Real-time dashboard shows metrics
+
+EXERCISE 4: Performance Testing
+-----------------------------
+Test your Kafka setup:
+1. Producer throughput testing
+2. Consumer lag monitoring
+3. Partition optimization
+4. Error recovery testing
+
+================================================================================
+10. ASSESSMENT CHECKLIST
+================================================================================
+□ Understand Kafka architecture and concepts
+□ Can configure Kafka with Spring Boot
+□ Know how to produce and consume messages
+□ Familiar with Kafka Streams processing
+□ Can implement error handling and retries
+□ Understand partitioning and ordering
+□ Can monitor Kafka applications
+□ Know performance optimization techniques
+
+================================================================================
+NEXT MODULE: 05_Apache_Spark
+================================================================================
+Great progress! Now let's learn Apache Spark for large-scale data processing
+and analytics. This will complete your Big Data processing toolkit!

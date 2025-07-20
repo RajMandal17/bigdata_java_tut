@@ -1,0 +1,551 @@
+================================================================================
+                        SPRING BOOT FOR BIG DATA APPLICATIONS
+================================================================================
+
+WEEK 3-4: Building Scalable Applications with Spring Boot
+
+================================================================================
+1. SPRING BOOT FUNDAMENTALS
+================================================================================
+
+1.1 WHY SPRING BOOT FOR BIG DATA?
+--------------------------------
+• Rapid application development
+• Built-in monitoring and health checks
+• Easy integration with databases and message queues
+• Microservices architecture support
+• Production-ready features out of the box
+• Excellent integration with Kafka, Spark, and databases
+
+1.2 SPRING BOOT CORE CONCEPTS:
+-----------------------------
+• Auto-configuration
+• Dependency Injection
+• Spring Boot Starters
+• Application Properties
+• Profiles for different environments
+
+1.3 PROJECT STRUCTURE:
+--------------------
+src/
+├── main/
+│   ├── java/
+│   │   └── com/bigdata/app/
+│   │       ├── BigDataApplication.java
+│   │       ├── controller/
+│   │       ├── service/
+│   │       ├── repository/
+│   │       ├── model/
+│   │       └── config/
+│   └── resources/
+│       ├── application.yml
+│       └── application-dev.yml
+└── test/
+
+================================================================================
+2. SETTING UP SPRING BOOT FOR BIG DATA
+================================================================================
+
+2.1 ESSENTIAL DEPENDENCIES (pom.xml):
+------------------------------------
+<dependencies>
+    <!-- Spring Boot Starter -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    
+    <!-- Spring Boot Data JPA -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+    
+    <!-- Spring Boot Data MongoDB -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-data-mongodb</artifactId>
+    </dependency>
+    
+    <!-- Spring Kafka -->
+    <dependency>
+        <groupId>org.springframework.kafka</groupId>
+        <artifactId>spring-kafka</artifactId>
+    </dependency>
+    
+    <!-- MySQL Driver -->
+    <dependency>
+        <groupId>mysql</groupId>
+        <artifactId>mysql-connector-java</artifactId>
+    </dependency>
+    
+    <!-- Validation -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
+    
+    <!-- Actuator for monitoring -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+</dependencies>
+
+2.2 APPLICATION CONFIGURATION (application.yml):
+-----------------------------------------------
+# Application Configuration
+server:
+  port: 8080
+  
+spring:
+  application:
+    name: bigdata-processor
+    
+  # Database Configuration
+  datasource:
+    url: jdbc:mysql://localhost:3306/bigdata_db
+    username: ${DB_USERNAME:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQL8Dialect
+        
+  # MongoDB Configuration
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/bigdata_mongo
+      
+  # Kafka Configuration
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: bigdata-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+
+# Actuator Configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+
+================================================================================
+3. BUILDING REST APIs FOR DATA PROCESSING
+================================================================================
+
+3.1 DATA MODEL EXAMPLE:
+
+@Entity
+@Table(name = "transactions")
+public class Transaction {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @Column(nullable = false)
+    private String customerId;
+    
+    @Column(nullable = false)
+    private BigDecimal amount;
+    
+    @Column(nullable = false)
+    private LocalDateTime timestamp;
+    
+    @Column(length = 50)
+    private String category;
+    
+    @Column(length = 20)
+    private String status;
+    
+    // Constructors, getters, setters
+}
+
+3.2 REPOSITORY LAYER:
+
+@Repository
+public interface TransactionRepository extends JpaRepository<Transaction, Long> {
+    
+    List<Transaction> findByCustomerId(String customerId);
+    
+    @Query("SELECT t FROM Transaction t WHERE t.amount > :amount")
+    List<Transaction> findHighValueTransactions(@Param("amount") BigDecimal amount);
+    
+    @Query("SELECT t.category, COUNT(t), SUM(t.amount) FROM Transaction t " +
+           "WHERE t.timestamp BETWEEN :start AND :end GROUP BY t.category")
+    List<Object[]> getTransactionSummaryByCategory(
+        @Param("start") LocalDateTime start, 
+        @Param("end") LocalDateTime end);
+}
+
+3.3 SERVICE LAYER:
+
+@Service
+@Transactional
+public class TransactionService {
+    
+    @Autowired
+    private TransactionRepository transactionRepository;
+    
+    @Autowired
+    private KafkaTemplate<String, String> kafkaTemplate;
+    
+    public Transaction saveTransaction(Transaction transaction) {
+        transaction.setTimestamp(LocalDateTime.now());
+        Transaction saved = transactionRepository.save(transaction);
+        
+        // Send to Kafka for real-time processing
+        kafkaTemplate.send("transactions-topic", 
+                          saved.getCustomerId(), 
+                          convertToJson(saved));
+        
+        return saved;
+    }
+    
+    public List<Transaction> getHighValueTransactions(BigDecimal threshold) {
+        return transactionRepository.findHighValueTransactions(threshold);
+    }
+    
+    public Map<String, Object> getTransactionAnalytics(LocalDateTime start, LocalDateTime end) {
+        List<Object[]> summary = transactionRepository
+            .getTransactionSummaryByCategory(start, end);
+        
+        Map<String, Object> analytics = new HashMap<>();
+        for (Object[] row : summary) {
+            Map<String, Object> categoryData = new HashMap<>();
+            categoryData.put("count", row[1]);
+            categoryData.put("total", row[2]);
+            analytics.put((String) row[0], categoryData);
+        }
+        
+        return analytics;
+    }
+    
+    @Async
+    public CompletableFuture<Void> processBatchTransactions(List<Transaction> transactions) {
+        // Process large batch asynchronously
+        List<Transaction> processedTransactions = transactions.stream()
+            .map(this::validateAndEnrich)
+            .collect(Collectors.toList());
+            
+        transactionRepository.saveAll(processedTransactions);
+        return CompletableFuture.completedFuture(null);
+    }
+}
+
+3.4 CONTROLLER LAYER:
+
+@RestController
+@RequestMapping("/api/transactions")
+@Validated
+public class TransactionController {
+    
+    @Autowired
+    private TransactionService transactionService;
+    
+    @PostMapping
+    public ResponseEntity<Transaction> createTransaction(
+            @Valid @RequestBody Transaction transaction) {
+        Transaction saved = transactionService.saveTransaction(transaction);
+        return ResponseEntity.ok(saved);
+    }
+    
+    @PostMapping("/batch")
+    public ResponseEntity<String> processBatch(
+            @RequestBody List<@Valid Transaction> transactions) {
+        if (transactions.size() > 10000) {
+            return ResponseEntity.badRequest()
+                .body("Batch size cannot exceed 10,000 transactions");
+        }
+        
+        transactionService.processBatchTransactions(transactions);
+        return ResponseEntity.ok("Batch processing initiated");
+    }
+    
+    @GetMapping("/high-value")
+    public ResponseEntity<List<Transaction>> getHighValueTransactions(
+            @RequestParam BigDecimal threshold) {
+        List<Transaction> transactions = 
+            transactionService.getHighValueTransactions(threshold);
+        return ResponseEntity.ok(transactions);
+    }
+    
+    @GetMapping("/analytics")
+    public ResponseEntity<Map<String, Object>> getAnalytics(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime start,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime end) {
+        Map<String, Object> analytics = 
+            transactionService.getTransactionAnalytics(start, end);
+        return ResponseEntity.ok(analytics);
+    }
+}
+
+================================================================================
+4. CONFIGURATION AND PROFILES
+================================================================================
+
+4.1 ENVIRONMENT-SPECIFIC CONFIGURATION:
+
+# application-dev.yml
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/bigdata_dev
+  jpa:
+    show-sql: true
+    hibernate:
+      ddl-auto: create-drop
+
+logging:
+  level:
+    com.bigdata: DEBUG
+
+# application-prod.yml
+spring:
+  datasource:
+    url: jdbc:mysql://prod-server:3306/bigdata_prod
+    hikari:
+      maximum-pool-size: 50
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+logging:
+  level:
+    root: WARN
+    com.bigdata: INFO
+
+4.2 CUSTOM CONFIGURATION PROPERTIES:
+
+@ConfigurationProperties(prefix = "bigdata")
+@Component
+public class BigDataProperties {
+    private int batchSize = 1000;
+    private int maxConcurrentTasks = 10;
+    private String dataDirectory = "/data";
+    
+    // Getters and setters
+}
+
+# In application.yml
+bigdata:
+  batch-size: 5000
+  max-concurrent-tasks: 20
+  data-directory: /opt/bigdata
+
+================================================================================
+5. ASYNC PROCESSING AND SCHEDULING
+================================================================================
+
+5.1 ASYNC CONFIGURATION:
+
+@Configuration
+@EnableAsync
+public class AsyncConfig {
+    
+    @Bean(name = "taskExecutor")
+    public Executor taskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(10);
+        executor.setMaxPoolSize(50);
+        executor.setQueueCapacity(1000);
+        executor.setThreadNamePrefix("BigData-");
+        executor.initialize();
+        return executor;
+    }
+}
+
+5.2 SCHEDULED TASKS:
+
+@Component
+public class DataProcessingScheduler {
+    
+    @Autowired
+    private TransactionService transactionService;
+    
+    @Scheduled(fixedRate = 300000) // Every 5 minutes
+    public void processQueuedTransactions() {
+        // Process queued transactions
+    }
+    
+    @Scheduled(cron = "0 0 2 * * ?") // Daily at 2 AM
+    public void generateDailyReports() {
+        // Generate daily analytics reports
+    }
+    
+    @Scheduled(cron = "0 0 0 1 * ?") // Monthly on 1st day
+    public void archiveOldData() {
+        // Archive data older than 6 months
+    }
+}
+
+================================================================================
+6. ERROR HANDLING AND VALIDATION
+================================================================================
+
+6.1 GLOBAL EXCEPTION HANDLER:
+
+@ControllerAdvice
+public class GlobalExceptionHandler {
+    
+    private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+    
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, String>> handleValidationException(
+            MethodArgumentNotValidException ex) {
+        Map<String, String> errors = new HashMap<>();
+        ex.getBindingResult().getFieldErrors().forEach(error ->
+            errors.put(error.getField(), error.getDefaultMessage())
+        );
+        return ResponseEntity.badRequest().body(errors);
+    }
+    
+    @ExceptionHandler(DataAccessException.class)
+    public ResponseEntity<String> handleDataAccessException(DataAccessException ex) {
+        logger.error("Database error occurred", ex);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+            .body("Database operation failed");
+    }
+    
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<String> handleGenericException(Exception ex) {
+        logger.error("Unexpected error occurred", ex);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+            .body("An unexpected error occurred");
+    }
+}
+
+6.2 CUSTOM VALIDATION:
+
+@Target({ElementType.FIELD})
+@Retention(RetentionPolicy.RUNTIME)
+@Constraint(validatedBy = ValidTransactionAmountValidator.class)
+public @interface ValidTransactionAmount {
+    String message() default "Transaction amount must be positive and not exceed daily limit";
+    Class<?>[] groups() default {};
+    Class<? extends Payload>[] payload() default {};
+}
+
+public class ValidTransactionAmountValidator 
+        implements ConstraintValidator<ValidTransactionAmount, BigDecimal> {
+    
+    @Override
+    public boolean isValid(BigDecimal amount, ConstraintValidatorContext context) {
+        return amount != null && 
+               amount.compareTo(BigDecimal.ZERO) > 0 && 
+               amount.compareTo(new BigDecimal("100000")) <= 0;
+    }
+}
+
+================================================================================
+7. MONITORING AND HEALTH CHECKS
+================================================================================
+
+7.1 CUSTOM HEALTH INDICATORS:
+
+@Component
+public class DatabaseHealthIndicator implements HealthIndicator {
+    
+    @Autowired
+    private TransactionRepository transactionRepository;
+    
+    @Override
+    public Health health() {
+        try {
+            long count = transactionRepository.count();
+            return Health.up()
+                .withDetail("database", "Available")
+                .withDetail("record_count", count)
+                .build();
+        } catch (Exception e) {
+            return Health.down()
+                .withDetail("database", "Unavailable")
+                .withException(e)
+                .build();
+        }
+    }
+}
+
+7.2 METRICS AND MONITORING:
+
+@Component
+public class TransactionMetrics {
+    
+    private final Counter transactionCounter;
+    private final Timer transactionTimer;
+    
+    public TransactionMetrics(MeterRegistry meterRegistry) {
+        this.transactionCounter = meterRegistry.counter("transactions.processed");
+        this.transactionTimer = meterRegistry.timer("transaction.processing.time");
+    }
+    
+    public void incrementTransactionCount() {
+        transactionCounter.increment();
+    }
+    
+    public void recordProcessingTime(Duration duration) {
+        transactionTimer.record(duration);
+    }
+}
+
+================================================================================
+8. PRACTICAL EXERCISES
+================================================================================
+
+EXERCISE 1: Build a Transaction API
+----------------------------------
+Create a complete REST API that:
+1. Accepts transaction data
+2. Validates input
+3. Stores in database
+4. Provides analytics endpoints
+5. Handles errors gracefully
+
+EXERCISE 2: Implement Batch Processing
+------------------------------------
+Build a service that:
+1. Accepts CSV file uploads
+2. Processes files asynchronously
+3. Provides processing status
+4. Generates reports
+
+EXERCISE 3: Add Monitoring
+------------------------
+Implement:
+1. Custom health checks
+2. Application metrics
+3. Performance monitoring
+4. Alerting capabilities
+
+================================================================================
+9. ASSESSMENT CHECKLIST
+================================================================================
+□ Can create Spring Boot applications from scratch
+□ Understand dependency injection and auto-configuration
+□ Can build REST APIs with proper validation
+□ Know how to configure multiple data sources
+□ Can implement async processing
+□ Understand application monitoring
+□ Familiar with Spring profiles and configuration
+
+================================================================================
+NEXT MODULE: 03_Database_Foundations
+================================================================================
+Now that you understand Spring Boot, let's learn how to work with databases
+effectively for Big Data applications!

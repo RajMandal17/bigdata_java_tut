@@ -1,0 +1,80 @@
+# Prometheus Configuration for Kafka Monitoring
+# This configuration sets up Prometheus to scrape metrics from Kafka and the Spring Boot application
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "kafka_alerts.yml"
+
+scrape_configs:
+  # Spring Boot Application Metrics
+  - job_name: 'kafka-streaming-app'
+    static_configs:
+      - targets: ['kafka-streaming-app:8080']
+    metrics_path: '/actuator/prometheus'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # Kafka Broker Metrics (JMX Exporter)
+  - job_name: 'kafka-broker'
+    static_configs:
+      - targets: ['kafka:9999']
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # Zookeeper Metrics
+  - job_name: 'zookeeper'
+    static_configs:
+      - targets: ['zookeeper:9998']
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # Schema Registry Metrics
+  - job_name: 'schema-registry'
+    static_configs:
+      - targets: ['schema-registry:9997']
+    scrape_interval: 15s
+
+  # Kafka Connect Metrics
+  - job_name: 'kafka-connect'
+    static_configs:
+      - targets: ['kafka-connect:9996']
+    scrape_interval: 15s
+
+  # KSQL Metrics
+  - job_name: 'ksqldb-server'
+    static_configs:
+      - targets: ['ksqldb-server:9995']
+    scrape_interval: 15s
+
+  # PostgreSQL Exporter
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    scrape_interval: 15s
+
+  # Redis Exporter
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+    scrape_interval: 15s
+
+  # Node Exporter for System Metrics
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+# Storage configuration
+storage:
+  tsdb:
+    retention.time: 30d
+    retention.size: 10GB

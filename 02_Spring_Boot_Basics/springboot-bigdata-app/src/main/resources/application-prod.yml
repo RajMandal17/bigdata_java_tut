@@ -1,0 +1,17 @@
+# Production Profile Configuration
+spring:
+  datasource:
+    url: jdbc:mysql://prod-server:3306/bigdata_prod
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 50
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+
+logging:
+  level:
+    root: WARN
+    com.bigdata.app: INFO

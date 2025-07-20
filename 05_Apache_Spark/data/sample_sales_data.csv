@@ -1,0 +1,16 @@
+transaction_id,customer_id,product_id,product_name,category,quantity,unit_price,total_amount,transaction_date,customer_age,customer_gender,customer_location,payment_method
+TXN001,CUST001,PROD001,Gaming Laptop,Electronics,1,1499.99,1499.99,2024-07-15 10:30:00,28,M,New York,Credit Card
+TXN002,CUST002,PROD002,Coffee Maker,Appliances,1,129.99,129.99,2024-07-15 14:15:00,35,F,California,Debit Card
+TXN003,CUST003,PROD003,Data Science Book,Books,2,79.99,159.98,2024-07-16 09:20:00,42,M,Texas,PayPal
+TXN004,CUST001,PROD004,Wireless Mouse,Electronics,1,39.99,39.99,2024-07-16 16:45:00,28,M,New York,Credit Card
+TXN005,CUST004,PROD005,Running Shoes,Sports,1,149.99,149.99,2024-07-17 11:00:00,25,F,Florida,Credit Card
+TXN006,CUST005,PROD006,Smart Watch,Electronics,1,299.99,299.99,2024-07-17 13:30:00,31,M,Illinois,Credit Card
+TXN007,CUST002,PROD007,Yoga Mat,Sports,1,29.99,29.99,2024-07-18 08:45:00,35,F,California,Debit Card
+TXN008,CUST006,PROD008,Cookbook,Books,1,24.99,24.99,2024-07-18 19:20:00,45,F,Washington,PayPal
+TXN009,CUST007,PROD009,Bluetooth Speaker,Electronics,1,79.99,79.99,2024-07-19 12:15:00,29,M,Nevada,Credit Card
+TXN010,CUST003,PROD010,Office Chair,Furniture,1,199.99,199.99,2024-07-19 15:30:00,42,M,Texas,Credit Card
+TXN011,CUST008,PROD011,Kitchen Knife Set,Kitchen,1,89.99,89.99,2024-07-20 10:00:00,38,F,Arizona,Debit Card
+TXN012,CUST004,PROD012,Fitness Tracker,Electronics,1,119.99,119.99,2024-07-20 14:45:00,25,F,Florida,Credit Card
+TXN013,CUST009,PROD013,Desk Lamp,Furniture,1,49.99,49.99,2024-07-20 16:20:00,33,M,Oregon,PayPal
+TXN014,CUST001,PROD014,Mechanical Keyboard,Electronics,1,159.99,159.99,2024-07-20 18:10:00,28,M,New York,Credit Card
+TXN015,CUST010,PROD015,Protein Powder,Health,1,39.99,39.99,2024-07-20 20:30:00,27,M,Colorado,Credit Card

@@ -1,0 +1,21 @@
+spring:
+  profiles:
+    active: test
+
+spark:
+  master: "local[2]"
+  app:
+    name: "Spark-Test-Application"
+  
+logging:
+  level:
+    com.bigdata.spark: INFO
+    org.apache.spark: WARN
+    org.apache.hadoop: WARN
+    
+# Disable streaming and ML for tests
+streaming:
+  enabled: false
+  
+ml:
+  enabled: false

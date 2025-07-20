@@ -1,0 +1,17 @@
+# Development Profile Configuration
+spring:
+  datasource:
+    url: jdbc:h2:mem:bigdata_dev
+  jpa:
+    show-sql: true
+    hibernate:
+      ddl-auto: create-drop
+
+# Mock Kafka for development (will skip if not available)
+kafka:
+  enabled: false
+
+logging:
+  level:
+    com.bigdata.app: DEBUG
+    org.springframework.kafka: WARN

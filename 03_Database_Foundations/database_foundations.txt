@@ -1,0 +1,653 @@
+================================================================================
+                            DATABASE FOUNDATIONS
+================================================================================
+
+WEEK 5-6: MySQL and MongoDB for Big Data Applications
+
+================================================================================
+1. INTRODUCTION TO DATABASES IN BIG DATA
+================================================================================
+
+1.1 SQL vs NoSQL IN BIG DATA CONTEXT:
+------------------------------------
+
+RELATIONAL DATABASES (MySQL):
+✓ ACID compliance
+✓ Complex queries with JOINs
+✓ Structured data
+✓ Strong consistency
+✗ Horizontal scaling challenges
+✗ Schema rigidity
+
+NoSQL DATABASES (MongoDB):
+✓ Horizontal scaling
+✓ Schema flexibility
+✓ High write throughput
+✓ Document-based storage
+✗ Eventual consistency
+✗ Limited query capabilities
+
+1.2 WHEN TO USE EACH:
+--------------------
+MySQL:
+- Financial transactions
+- User management
+- Inventory systems
+- Reporting and analytics
+
+MongoDB:
+- Real-time analytics
+- Content management
+- IoT data storage
+- Event logging
+- Social media data
+
+================================================================================
+2. MYSQL FOR BIG DATA
+================================================================================
+
+2.1 MYSQL OPTIMIZATION FOR BIG DATA:
+-----------------------------------
+
+# my.cnf configuration for Big Data
+[mysqld]
+# Memory settings
+innodb_buffer_pool_size = 8G        # 70-80% of available RAM
+innodb_log_file_size = 1G           # Large log files for better performance
+innodb_flush_log_at_trx_commit = 2  # Better performance, slight durability trade-off
+
+# Connection settings
+max_connections = 500
+thread_cache_size = 50
+
+# Query optimization
+query_cache_size = 0                # Disable query cache for write-heavy workloads
+tmp_table_size = 1G
+max_heap_table_size = 1G
+
+# InnoDB settings
+innodb_file_per_table = 1
+innodb_flush_method = O_DIRECT
+innodb_read_io_threads = 8
+innodb_write_io_threads = 8
+
+2.2 DATABASE SCHEMA DESIGN:
+
+-- Partitioned table for time-series data
+CREATE TABLE transactions (
+    id BIGINT AUTO_INCREMENT,
+    customer_id VARCHAR(50) NOT NULL,
+    amount DECIMAL(15,2) NOT NULL,
+    transaction_date DATE NOT NULL,
+    transaction_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    category VARCHAR(50),
+    status ENUM('pending', 'completed', 'failed') DEFAULT 'pending',
+    PRIMARY KEY (id, transaction_date),
+    INDEX idx_customer_date (customer_id, transaction_date),
+    INDEX idx_amount (amount),
+    INDEX idx_status_date (status, transaction_date)
+) PARTITION BY RANGE (YEAR(transaction_date)) (
+    PARTITION p2023 VALUES LESS THAN (2024),
+    PARTITION p2024 VALUES LESS THAN (2025),
+    PARTITION p2025 VALUES LESS THAN (2026),
+    PARTITION p_future VALUES LESS THAN MAXVALUE
+);
+
+-- Summary table for aggregated data
+CREATE TABLE daily_transaction_summary (
+    summary_date DATE PRIMARY KEY,
+    total_transactions INT,
+    total_amount DECIMAL(15,2),
+    avg_amount DECIMAL(15,2),
+    categories JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+2.3 INDEXING STRATEGIES:
+
+-- Composite indexes for common queries
+CREATE INDEX idx_customer_category_date 
+ON transactions (customer_id, category, transaction_date);
+
+-- Covering index for analytics queries
+CREATE INDEX idx_analytics_covering 
+ON transactions (transaction_date, category, amount, status);
+
+-- Functional index for computed columns
+CREATE INDEX idx_month_year 
+ON transactions ((YEAR(transaction_date)), (MONTH(transaction_date)));
+
+2.4 SPRING DATA JPA CONFIGURATION:
+
+@Entity
+@Table(name = "transactions")
+public class Transaction {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @Column(name = "customer_id", nullable = false, length = 50)
+    @Index
+    private String customerId;
+    
+    @Column(nullable = false, precision = 15, scale = 2)
+    private BigDecimal amount;
+    
+    @Column(name = "transaction_date", nullable = false)
+    @Temporal(TemporalType.DATE)
+    private Date transactionDate;
+    
+    @Column(name = "transaction_time")
+    @CreationTimestamp
+    private Timestamp transactionTime;
+    
+    @Enumerated(EnumType.STRING)
+    private TransactionStatus status;
+    
+    // Getters and setters
+}
+
+@Repository
+public interface TransactionRepository extends JpaRepository<Transaction, Long> {
+    
+    // Native query for complex analytics
+    @Query(value = """
+        SELECT 
+            DATE(transaction_date) as date,
+            category,
+            COUNT(*) as count,
+            SUM(amount) as total,
+            AVG(amount) as average
+        FROM transactions 
+        WHERE transaction_date BETWEEN :startDate AND :endDate
+        GROUP BY DATE(transaction_date), category
+        ORDER BY date DESC, total DESC
+        """, nativeQuery = true)
+    List<Object[]> getDailyAnalytics(
+        @Param("startDate") Date startDate, 
+        @Param("endDate") Date endDate);
+    
+    // Pagination for large datasets
+    @Query("SELECT t FROM Transaction t WHERE t.amount > :threshold")
+    Page<Transaction> findHighValueTransactions(
+        @Param("threshold") BigDecimal threshold, 
+        Pageable pageable);
+    
+    // Batch operations
+    @Modifying
+    @Query("UPDATE Transaction t SET t.status = :newStatus WHERE t.status = :oldStatus")
+    int bulkUpdateStatus(
+        @Param("oldStatus") TransactionStatus oldStatus,
+        @Param("newStatus") TransactionStatus newStatus);
+}
+
+2.5 CONNECTION POOLING WITH HIKARI:
+
+# application.yml
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/bigdata_db?useSSL=false&serverTimezone=UTC
+    username: bigdata_user
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 50          # Adjust based on your needs
+      minimum-idle: 10
+      connection-timeout: 30000      # 30 seconds
+      idle-timeout: 600000          # 10 minutes
+      max-lifetime: 1800000         # 30 minutes
+      leak-detection-threshold: 60000 # 1 minute
+
+================================================================================
+3. MONGODB FOR BIG DATA
+================================================================================
+
+3.1 MONGODB CONFIGURATION:
+
+# mongod.conf
+storage:
+  dbPath: /var/lib/mongodb
+  journal:
+    enabled: true
+  wiredTiger:
+    engineConfig:
+      cacheSizeGB: 8              # 50% of available RAM
+    collectionConfig:
+      blockCompressor: snappy     # Better compression for Big Data
+    indexConfig:
+      prefixCompression: true
+
+net:
+  port: 27017
+  bindIp: 127.0.0.1
+
+operationProfiling:
+  slowOpThresholdMs: 100
+  mode: slowOp
+
+3.2 DOCUMENT DESIGN:
+
+// Event document structure
+{
+  "_id": ObjectId("..."),
+  "eventId": "evt_123456789",
+  "userId": "user_001",
+  "eventType": "purchase",
+  "timestamp": ISODate("2024-01-20T10:30:00Z"),
+  "data": {
+    "productId": "prod_456",
+    "quantity": 2,
+    "price": 99.99,
+    "category": "electronics"
+  },
+  "metadata": {
+    "source": "mobile_app",
+    "version": "2.1.0",
+    "sessionId": "sess_789",
+    "location": {
+      "type": "Point",
+      "coordinates": [-73.856077, 40.848447]
+    }
+  },
+  "tags": ["premium", "first_purchase"],
+  "processed": false
+}
+
+3.3 INDEXING FOR PERFORMANCE:
+
+// Create compound indexes
+db.events.createIndex({ "userId": 1, "timestamp": -1 })
+db.events.createIndex({ "eventType": 1, "processed": 1, "timestamp": -1 })
+db.events.createIndex({ "data.category": 1, "timestamp": -1 })
+
+// Text index for search
+db.events.createIndex({ 
+  "data.productName": "text", 
+  "data.description": "text" 
+})
+
+// Geospatial index
+db.events.createIndex({ "metadata.location": "2dsphere" })
+
+// TTL index for auto-deletion
+db.events.createIndex(
+  { "timestamp": 1 }, 
+  { expireAfterSeconds: 7776000 } // 90 days
+)
+
+3.4 SPRING DATA MONGODB:
+
+@Document(collection = "events")
+public class Event {
+    @Id
+    private String id;
+    
+    @Indexed
+    private String eventId;
+    
+    @Indexed
+    private String userId;
+    
+    @Indexed
+    private String eventType;
+    
+    @Indexed
+    private LocalDateTime timestamp;
+    
+    private Map<String, Object> data;
+    private Map<String, Object> metadata;
+    private List<String> tags;
+    
+    @Indexed
+    private boolean processed = false;
+    
+    // Constructors, getters, setters
+}
+
+@Repository
+public interface EventRepository extends MongoRepository<Event, String> {
+    
+    // Query methods
+    List<Event> findByUserIdAndTimestampBetween(
+        String userId, 
+        LocalDateTime start, 
+        LocalDateTime end);
+    
+    List<Event> findByEventTypeAndProcessedFalse(String eventType);
+    
+    // Aggregation pipeline
+    @Aggregation(pipeline = {
+        "{ $match: { eventType: ?0, timestamp: { $gte: ?1, $lte: ?2 } } }",
+        "{ $group: { _id: '$data.category', count: { $sum: 1 }, totalValue: { $sum: '$data.price' } } }",
+        "{ $sort: { totalValue: -1 } }"
+    })
+    List<CategorySummary> getCategorySummary(
+        String eventType, 
+        LocalDateTime start, 
+        LocalDateTime end);
+    
+    // Geospatial query
+    @Query("{ 'metadata.location': { $near: { $geometry: { type: 'Point', coordinates: [?0, ?1] }, $maxDistance: ?2 } } }")
+    List<Event> findEventsNearLocation(double longitude, double latitude, double maxDistance);
+}
+
+3.5 AGGREGATION PIPELINES:
+
+@Service
+public class EventAnalyticsService {
+    
+    @Autowired
+    private MongoTemplate mongoTemplate;
+    
+    public List<HourlyStats> getHourlyEventStats(LocalDateTime start, LocalDateTime end) {
+        Aggregation aggregation = Aggregation.newAggregation(
+            Aggregation.match(Criteria.where("timestamp").gte(start).lte(end)),
+            Aggregation.project()
+                .and("eventType").as("eventType")
+                .and(DateOperators.Hour.hourOf("timestamp")).as("hour")
+                .and(DateOperators.DateToString.dateOf("timestamp")
+                    .toString("%Y-%m-%d")).as("date"),
+            Aggregation.group("date", "hour", "eventType")
+                .count().as("count"),
+            Aggregation.sort(Sort.Direction.ASC, "date", "hour")
+        );
+        
+        return mongoTemplate.aggregate(aggregation, "events", HourlyStats.class)
+            .getMappedResults();
+    }
+    
+    public Map<String, Object> getUserBehaviorAnalysis(String userId) {
+        Aggregation aggregation = Aggregation.newAggregation(
+            Aggregation.match(Criteria.where("userId").is(userId)),
+            Aggregation.group("eventType")
+                .count().as("frequency")
+                .avg("data.price").as("avgValue")
+                .max("timestamp").as("lastActivity"),
+            Aggregation.sort(Sort.Direction.DESC, "frequency")
+        );
+        
+        AggregationResults<Map> results = mongoTemplate.aggregate(
+            aggregation, "events", Map.class);
+        
+        Map<String, Object> analysis = new HashMap<>();
+        analysis.put("eventTypes", results.getMappedResults());
+        analysis.put("totalEvents", getTotalEventCount(userId));
+        analysis.put("firstActivity", getFirstActivity(userId));
+        
+        return analysis;
+    }
+}
+
+================================================================================
+4. DATABASE INTEGRATION PATTERNS
+================================================================================
+
+4.1 POLYGLOT PERSISTENCE:
+
+@Service
+public class DataService {
+    
+    @Autowired
+    private TransactionRepository mysqlRepository;  // MySQL for transactions
+    
+    @Autowired
+    private EventRepository mongoRepository;        // MongoDB for events
+    
+    @Transactional
+    public void processUserTransaction(String userId, TransactionRequest request) {
+        // Store structured transaction in MySQL
+        Transaction transaction = new Transaction();
+        transaction.setCustomerId(userId);
+        transaction.setAmount(request.getAmount());
+        transaction.setCategory(request.getCategory());
+        Transaction saved = mysqlRepository.save(transaction);
+        
+        // Store event data in MongoDB
+        Event event = new Event();
+        event.setUserId(userId);
+        event.setEventType("transaction_created");
+        event.setTimestamp(LocalDateTime.now());
+        
+        Map<String, Object> data = new HashMap<>();
+        data.put("transactionId", saved.getId());
+        data.put("amount", request.getAmount());
+        data.put("category", request.getCategory());
+        event.setData(data);
+        
+        mongoRepository.save(event);
+    }
+}
+
+4.2 CACHING STRATEGIES:
+
+@Configuration
+@EnableCaching
+public class CacheConfig {
+    
+    @Bean
+    public CacheManager cacheManager() {
+        RedisCacheManager.Builder builder = RedisCacheManager
+            .RedisCacheManagerBuilder
+            .fromConnectionFactory(redisConnectionFactory())
+            .cacheDefaults(cacheConfiguration());
+        
+        return builder.build();
+    }
+    
+    private RedisCacheConfiguration cacheConfiguration() {
+        return RedisCacheConfiguration.defaultCacheConfig()
+            .entryTtl(Duration.ofMinutes(30))
+            .serializeKeysWith(RedisSerializationContext.SerializationPair
+                .fromSerializer(new StringRedisSerializer()))
+            .serializeValuesWith(RedisSerializationContext.SerializationPair
+                .fromSerializer(new GenericJackson2JsonRedisSerializer()));
+    }
+}
+
+@Service
+public class CachedAnalyticsService {
+    
+    @Cacheable(value = "dailyStats", key = "#date")
+    public DailyStats getDailyStatistics(LocalDate date) {
+        // Expensive calculation cached for 30 minutes
+        return calculateDailyStats(date);
+    }
+    
+    @CacheEvict(value = "dailyStats", key = "#date")
+    public void invalidateDailyStats(LocalDate date) {
+        // Called when data changes
+    }
+}
+
+================================================================================
+5. DATA MIGRATION AND ETL
+================================================================================
+
+5.1 BATCH DATA MIGRATION:
+
+@Service
+public class DataMigrationService {
+    
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+    
+    @Autowired
+    private MongoTemplate mongoTemplate;
+    
+    public void migrateLegacyData() {
+        String sql = """
+            SELECT customer_id, transaction_date, amount, category
+            FROM legacy_transactions
+            WHERE migration_status = 'pending'
+            LIMIT 10000
+            """;
+        
+        List<Map<String, Object>> legacyData = jdbcTemplate.queryForList(sql);
+        List<Event> events = new ArrayList<>();
+        
+        for (Map<String, Object> row : legacyData) {
+            Event event = new Event();
+            event.setUserId((String) row.get("customer_id"));
+            event.setEventType("legacy_transaction");
+            event.setTimestamp(((Date) row.get("transaction_date"))
+                .toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime());
+            
+            Map<String, Object> data = new HashMap<>();
+            data.put("amount", row.get("amount"));
+            data.put("category", row.get("category"));
+            event.setData(data);
+            
+            events.add(event);
+        }
+        
+        // Bulk insert to MongoDB
+        mongoTemplate.insertAll(events);
+        
+        // Update migration status
+        jdbcTemplate.update("""
+            UPDATE legacy_transactions 
+            SET migration_status = 'completed'
+            WHERE customer_id IN (?)
+            """, events.stream()
+                .map(Event::getUserId)
+                .collect(Collectors.joining(",")));
+    }
+}
+
+5.2 STREAMING ETL WITH CHANGE DATA CAPTURE:
+
+@Component
+public class DatabaseChangeProcessor {
+    
+    @Autowired
+    private KafkaTemplate<String, String> kafkaTemplate;
+    
+    @EventListener
+    @Async
+    public void handleTransactionUpdate(TransactionUpdateEvent event) {
+        // Convert database change to event
+        Map<String, Object> changeEvent = new HashMap<>();
+        changeEvent.put("operation", event.getOperation());
+        changeEvent.put("table", "transactions");
+        changeEvent.put("data", event.getNewData());
+        changeEvent.put("timestamp", Instant.now());
+        
+        // Send to Kafka for downstream processing
+        kafkaTemplate.send("db-changes", 
+                          event.getTransactionId().toString(),
+                          JsonUtils.toJson(changeEvent));
+    }
+}
+
+================================================================================
+6. PERFORMANCE OPTIMIZATION
+================================================================================
+
+6.1 QUERY OPTIMIZATION:
+
+// MySQL: Use EXPLAIN to analyze queries
+EXPLAIN SELECT 
+    customer_id, 
+    SUM(amount) as total
+FROM transactions 
+WHERE transaction_date >= '2024-01-01'
+    AND status = 'completed'
+GROUP BY customer_id
+HAVING total > 10000;
+
+// MongoDB: Use explain() method
+db.events.find({
+    "eventType": "purchase",
+    "timestamp": { $gte: ISODate("2024-01-01") }
+}).explain("executionStats");
+
+6.2 BATCH OPERATIONS:
+
+@Service
+public class BatchOperationService {
+    
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+    
+    public void batchInsertTransactions(List<Transaction> transactions) {
+        String sql = """
+            INSERT INTO transactions (customer_id, amount, category, transaction_date)
+            VALUES (?, ?, ?, ?)
+            """;
+        
+        List<Object[]> batchArgs = transactions.stream()
+            .map(t -> new Object[]{
+                t.getCustomerId(),
+                t.getAmount(),
+                t.getCategory(),
+                t.getTransactionDate()
+            })
+            .collect(Collectors.toList());
+        
+        jdbcTemplate.batchUpdate(sql, batchArgs);
+    }
+    
+    public void bulkInsertEvents(List<Event> events) {
+        // MongoDB bulk operations
+        BulkOperations bulkOps = mongoTemplate.bulkOps(
+            BulkOperations.BulkMode.UNORDERED, Event.class);
+        
+        for (Event event : events) {
+            bulkOps.insert(event);
+        }
+        
+        bulkOps.execute();
+    }
+}
+
+================================================================================
+7. PRACTICAL EXERCISES
+================================================================================
+
+EXERCISE 1: Design Database Schema
+---------------------------------
+Design schemas for:
+1. E-commerce transaction system (MySQL)
+2. User activity tracking (MongoDB)
+3. Include proper indexing strategy
+
+EXERCISE 2: Implement Repository Layer
+------------------------------------
+Create repositories with:
+1. Complex queries for analytics
+2. Pagination for large datasets
+3. Batch operations
+4. Custom aggregations
+
+EXERCISE 3: Performance Testing
+-----------------------------
+1. Load test with 1M+ records
+2. Compare query performance
+3. Optimize slow queries
+4. Implement caching
+
+EXERCISE 4: Data Migration
+------------------------
+Build a system to:
+1. Migrate data between databases
+2. Handle incremental updates
+3. Validate data integrity
+4. Rollback capabilities
+
+================================================================================
+8. ASSESSMENT CHECKLIST
+================================================================================
+□ Understand when to use SQL vs NoSQL
+□ Can design efficient database schemas
+□ Know indexing strategies for performance
+□ Can implement complex queries and aggregations
+□ Familiar with batch operations
+□ Understand caching strategies
+□ Can handle data migration scenarios
+
+================================================================================
+NEXT MODULE: 04_Apache_Kafka
+================================================================================
+Now that you have a solid foundation in databases, let's learn Apache Kafka
+for real-time data streaming and processing!

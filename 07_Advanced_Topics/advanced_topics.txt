@@ -1,0 +1,1011 @@
+================================================================================
+                            ADVANCED BIG DATA TOPICS
+================================================================================
+
+ADVANCED CONCEPTS AND PRODUCTION BEST PRACTICES
+
+================================================================================
+1. ADVANCED SPARK OPTIMIZATION
+================================================================================
+
+1.1 CATALYST OPTIMIZER DEEP DIVE:
+--------------------------------
+Understanding how Spark optimizes your queries:
+
+// Query plan analysis
+Dataset<Row> df = spark.sql("SELECT customer_id, SUM(amount) FROM transactions GROUP BY customer_id");
+df.explain(true); // Shows all optimization phases
+
+// Catalyst optimization phases:
+// 1. Logical Plan Creation
+// 2. Logical Plan Optimization (Rule-based)
+// 3. Physical Plan Generation
+// 4. Code Generation
+
+// Custom optimization rules
+spark.experimental().extraOptimizations().add(new CustomOptimizationRule());
+
+1.2 ADAPTIVE QUERY EXECUTION (AQE):
+----------------------------------
+# Enable AQE for dynamic optimization
+spark.sql.adaptive.enabled=true
+spark.sql.adaptive.coalescePartitions.enabled=true
+spark.sql.adaptive.skewJoin.enabled=true
+spark.sql.adaptive.localShuffleReader.enabled=true
+
+// Monitor AQE optimizations
+Dataset<Row> result = spark.sql("""
+    SELECT t.customer_id, c.name, SUM(t.amount)
+    FROM large_transactions t
+    JOIN customers c ON t.customer_id = c.id
+    GROUP BY t.customer_id, c.name
+""");
+
+// AQE will automatically:
+// - Coalesce small partitions
+// - Handle skewed joins
+// - Use local shuffle readers
+
+1.3 DELTA LAKE INTEGRATION:
+--------------------------
+<!-- Add Delta Lake dependency -->
+<dependency>
+    <groupId>io.delta</groupId>
+    <artifactId>delta-core_2.12</artifactId>
+    <version>2.4.0</version>
+</dependency>
+
+@Service
+public class DeltaLakeService {
+    
+    @Autowired
+    private SparkSession spark;
+    
+    public void createDeltaTable() {
+        Dataset<Row> transactions = loadTransactionData();
+        
+        // Write as Delta table
+        transactions
+            .write()
+            .format("delta")
+            .mode(SaveMode.Overwrite)
+            .option("path", "/delta/transactions")
+            .partitionBy("date")
+            .saveAsTable("transactions_delta");
+    }
+    
+    public void performTimeTravel() {
+        // Read historical version
+        Dataset<Row> historicalData = spark.read()
+            .format("delta")
+            .option("versionAsOf", 5)
+            .load("/delta/transactions");
+        
+        // Read data as of timestamp
+        Dataset<Row> timestampData = spark.read()
+            .format("delta")
+            .option("timestampAsOf", "2024-01-15")
+            .load("/delta/transactions");
+    }
+    
+    public void optimizeDeltaTable() {
+        // Compact small files
+        spark.sql("OPTIMIZE transactions_delta");
+        
+        // Z-ordering for better performance
+        spark.sql("OPTIMIZE transactions_delta ZORDER BY (customer_id, amount)");
+        
+        // Vacuum old files
+        spark.sql("VACUUM transactions_delta RETAIN 168 HOURS"); // 7 days
+    }
+    
+    public void handleSlowlyChangingDimensions() {
+        Dataset<Row> updates = loadCustomerUpdates();
+        
+        // Merge operation for SCD Type 2
+        spark.sql("""
+            MERGE INTO customers_delta c
+            USING customer_updates u ON c.customer_id = u.customer_id
+            WHEN MATCHED AND c.is_current = true AND 
+                 (c.email != u.email OR c.phone != u.phone) THEN
+                UPDATE SET is_current = false, end_date = current_date()
+            WHEN NOT MATCHED THEN
+                INSERT (customer_id, email, phone, is_current, start_date, end_date)
+                VALUES (u.customer_id, u.email, u.phone, true, current_date(), null)
+            """);
+    }
+}
+
+================================================================================
+2. ADVANCED KAFKA PATTERNS
+================================================================================
+
+2.1 EXACTLY-ONCE SEMANTICS:
+---------------------------
+@Configuration
+public class ExactlyOnceKafkaConfig {
+    
+    @Bean
+    public ProducerFactory<String, Object> exactlyOnceProducerFactory() {
+        Map<String, Object> props = new HashMap<>();
+        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, JsonSerializer.class);
+        
+        // Exactly-once configuration
+        props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
+        props.put(ProducerConfig.TRANSACTIONAL_ID_CONFIG, "transaction-producer-1");
+        props.put(ProducerConfig.ACKS_CONFIG, "all");
+        props.put(ProducerConfig.RETRIES_CONFIG, Integer.MAX_VALUE);
+        props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, 5);
+        
+        return new DefaultKafkaProducerFactory<>(props);
+    }
+    
+    @Bean
+    public KafkaTransactionManager kafkaTransactionManager() {
+        return new KafkaTransactionManager(exactlyOnceProducerFactory());
+    }
+}
+
+@Service
+@Transactional("kafkaTransactionManager")
+public class TransactionalKafkaService {
+    
+    @Autowired
+    private KafkaTemplate<String, Object> kafkaTemplate;
+    
+    public void processTransactionWithExactlyOnce(TransactionEvent event) {
+        // This entire method is atomic
+        kafkaTemplate.send("validated-transactions", event.getId(), event);
+        kafkaTemplate.send("audit-log", event.getId(), createAuditEvent(event));
+        
+        // If any operation fails, all will be rolled back
+        if (event.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new InvalidTransactionException("Amount must be positive");
+        }
+    }
+}
+
+2.2 KAFKA STREAMS ADVANCED PATTERNS:
+-----------------------------------
+@Component
+public class AdvancedKafkaStreamsProcessor {
+    
+    @Autowired
+    public void buildTopology(StreamsBuilder builder) {
+        
+        // Input streams
+        KStream<String, TransactionEvent> transactions = builder
+            .stream("transactions", Consumed.with(Serdes.String(), new JsonSerde<>(TransactionEvent.class)));
+        
+        KTable<String, CustomerData> customers = builder
+            .table("customers", Consumed.with(Serdes.String(), new JsonSerde<>(CustomerData.class)));
+        
+        // Pattern 1: Windowed Aggregations with Grace Period
+        KTable<Windowed<String>, Double> customerSpending = transactions
+            .groupByKey()
+            .windowedBy(TimeWindows.of(Duration.ofMinutes(5)).grace(Duration.ofMinutes(1)))
+            .aggregate(
+                () -> 0.0,
+                (key, transaction, aggregate) -> aggregate + transaction.getAmount().doubleValue(),
+                Materialized.<String, Double, WindowStore<Bytes, byte[]>>as("customer-spending-store")
+                    .withValueSerde(Serdes.Double())
+                    .withRetention(Duration.ofDays(7))
+            );
+        
+        // Pattern 2: Stream-Stream Join with Windowing
+        KStream<String, UserEvent> userEvents = builder
+            .stream("user-events", Consumed.with(Serdes.String(), new JsonSerde<>(UserEvent.class)));
+        
+        KStream<String, EnrichedEvent> enrichedEvents = transactions
+            .join(userEvents,
+                this::joinTransactionWithEvent,
+                JoinWindows.of(Duration.ofMinutes(10)).grace(Duration.ofMinutes(2)),
+                StreamJoined.with(
+                    Serdes.String(),
+                    new JsonSerde<>(TransactionEvent.class),
+                    new JsonSerde<>(UserEvent.class)
+                ));
+        
+        // Pattern 3: Global KTable for Reference Data
+        GlobalKTable<String, ProductData> products = builder
+            .globalTable("products", Consumed.with(Serdes.String(), new JsonSerde<>(ProductData.class)));
+        
+        KStream<String, EnrichedTransaction> productEnriched = transactions
+            .join(products,
+                (transactionKey, transaction) -> transaction.getProductId(),
+                this::enrichWithProduct);
+        
+        // Pattern 4: Branch Processing
+        KStream<String, TransactionEvent>[] branches = transactions
+            .branch(
+                (key, transaction) -> transaction.getAmount().compareTo(new BigDecimal("10000")) > 0,
+                (key, transaction) -> transaction.getAmount().compareTo(new BigDecimal("1000")) > 0,
+                (key, transaction) -> true
+            );
+        
+        // High-value transactions
+        branches[0].to("high-value-transactions");
+        
+        // Medium-value transactions
+        branches[1].to("medium-value-transactions");
+        
+        // Low-value transactions
+        branches[2].to("low-value-transactions");
+        
+        // Pattern 5: State Store Queries
+        KStream<String, FraudAlert> fraudAlerts = transactions
+            .transformValues(
+                () -> new FraudDetectionTransformer(),
+                "fraud-detection-store"
+            );
+        
+        fraudAlerts.to("fraud-alerts");
+    }
+}
+
+2.3 SCHEMA EVOLUTION WITH CONFLUENT SCHEMA REGISTRY:
+--------------------------------------------------
+<!-- Add Schema Registry dependencies -->
+<dependency>
+    <groupId>io.confluent</groupId>
+    <artifactId>kafka-avro-serializer</artifactId>
+    <version>7.4.0</version>
+</dependency>
+
+// Avro schema definition (transaction.avsc)
+{
+  "type": "record",
+  "name": "TransactionEvent",
+  "namespace": "com.bigdata.events",
+  "fields": [
+    {"name": "transactionId", "type": "string"},
+    {"name": "customerId", "type": "string"},
+    {"name": "amount", "type": "double"},
+    {"name": "currency", "type": "string", "default": "USD"},
+    {"name": "timestamp", "type": "long"},
+    {"name": "metadata", "type": {"type": "map", "values": "string"}, "default": {}}
+  ]
+}
+
+@Configuration
+public class SchemaRegistryConfig {
+    
+    @Bean
+    public ProducerFactory<String, Object> avroProducerFactory() {
+        Map<String, Object> props = new HashMap<>();
+        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, KafkaAvroSerializer.class);
+        props.put("schema.registry.url", "http://localhost:8081");
+        
+        return new DefaultKafkaProducerFactory<>(props);
+    }
+}
+
+================================================================================
+3. MACHINE LEARNING PIPELINES
+================================================================================
+
+3.1 MLFLOW INTEGRATION:
+-----------------------
+@Service
+public class MLFlowModelService {
+    
+    private final MLFlowClient mlflowClient;
+    
+    public MLFlowModelService() {
+        this.mlflowClient = new MLFlowClient("http://mlflow-server:5000");
+    }
+    
+    public String trainAndRegisterModel(Dataset<Row> trainingData) {
+        // Prepare experiment
+        String experimentId = mlflowClient.createExperiment("fraud-detection");
+        
+        try (MLFlowRun run = mlflowClient.createRun(experimentId)) {
+            // Log parameters
+            run.logParam("algorithm", "RandomForest");
+            run.logParam("numTrees", "100");
+            run.logParam("maxDepth", "10");
+            
+            // Feature engineering
+            VectorAssembler assembler = new VectorAssembler()
+                .setInputCols(new String[]{"amount", "hour", "day_of_week", "merchant_category"})
+                .setOutputCol("features");
+            
+            // Model training
+            RandomForestClassifier rf = new RandomForestClassifier()
+                .setFeaturesCol("features")
+                .setLabelCol("is_fraud")
+                .setNumTrees(100)
+                .setMaxDepth(10);
+            
+            Pipeline pipeline = new Pipeline().setStages(new PipelineStage[]{assembler, rf});
+            PipelineModel model = pipeline.fit(trainingData);
+            
+            // Model evaluation
+            Dataset<Row> predictions = model.transform(trainingData);
+            
+            BinaryClassificationEvaluator evaluator = new BinaryClassificationEvaluator()
+                .setLabelCol("is_fraud")
+                .setRawPredictionCol("rawPrediction");
+            
+            double auc = evaluator.evaluate(predictions);
+            
+            // Log metrics
+            run.logMetric("auc", auc);
+            run.logMetric("accuracy", calculateAccuracy(predictions));
+            
+            // Save model
+            String modelPath = "/tmp/fraud_model_" + run.getRunId();
+            model.write().overwrite().save(modelPath);
+            
+            // Register model
+            ModelVersion modelVersion = mlflowClient.createModelVersion(
+                "fraud-detection-model", modelPath, run.getRunId());
+            
+            return modelVersion.getVersion();
+        }
+    }
+    
+    public PipelineModel loadProductionModel() {
+        // Get latest production model
+        RegisteredModel model = mlflowClient.getRegisteredModel("fraud-detection-model");
+        ModelVersion latestVersion = model.getLatestVersions()
+            .stream()
+            .filter(v -> "Production".equals(v.getCurrentStage()))
+            .findFirst()
+            .orElseThrow(() -> new RuntimeException("No production model found"));
+        
+        return PipelineModel.load(latestVersion.getSource());
+    }
+}
+
+3.2 FEATURE STORES:
+------------------
+@Service
+public class FeatureStoreService {
+    
+    @Autowired
+    private SparkSession spark;
+    
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+    
+    public void createCustomerFeatures() {
+        Dataset<Row> transactions = loadTransactionData();
+        
+        // Compute customer features
+        Dataset<Row> customerFeatures = transactions
+            .groupBy("customer_id")
+            .agg(
+                count("*").alias("total_transactions"),
+                sum("amount").alias("total_spent"),
+                avg("amount").alias("avg_transaction_amount"),
+                stddev("amount").alias("spending_volatility"),
+                countDistinct("merchant_id").alias("unique_merchants"),
+                max("transaction_date").alias("last_transaction_date"),
+                min("transaction_date").alias("first_transaction_date")
+            )
+            .withColumn("customer_tenure_days", 
+                datediff(col("last_transaction_date"), col("first_transaction_date")))
+            .withColumn("avg_monthly_transactions", 
+                col("total_transactions").divide(col("customer_tenure_days")).multiply(30))
+            .withColumn("feature_timestamp", current_timestamp());
+        
+        // Store in feature store (Delta table)
+        customerFeatures
+            .write()
+            .format("delta")
+            .mode(SaveMode.Overwrite)
+            .option("path", "/feature-store/customer-features")
+            .saveAsTable("customer_features");
+        
+        // Cache frequently accessed features in Redis
+        customerFeatures.collect().forEach(row -> {
+            String customerId = row.getAs("customer_id");
+            Map<String, Object> features = new HashMap<>();
+            features.put("total_spent", row.getAs("total_spent"));
+            features.put("avg_amount", row.getAs("avg_transaction_amount"));
+            features.put("risk_score", calculateRiskScore(row));
+            
+            redisTemplate.opsForHash().putAll("customer_features:" + customerId, features);
+            redisTemplate.expire("customer_features:" + customerId, Duration.ofHours(24));
+        });
+    }
+    
+    public Map<String, Object> getCustomerFeatures(String customerId) {
+        // Try Redis first
+        Map<Object, Object> cachedFeatures = redisTemplate.opsForHash()
+            .entries("customer_features:" + customerId);
+        
+        if (!cachedFeatures.isEmpty()) {
+            return cachedFeatures.entrySet().stream()
+                .collect(Collectors.toMap(
+                    e -> (String) e.getKey(),
+                    Map.Entry::getValue
+                ));
+        }
+        
+        // Fallback to feature store
+        Dataset<Row> features = spark.sql(
+            "SELECT * FROM customer_features WHERE customer_id = '" + customerId + "'");
+        
+        if (features.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        
+        Row row = features.first();
+        Map<String, Object> featureMap = new HashMap<>();
+        Arrays.stream(row.schema().fieldNames()).forEach(field -> {
+            featureMap.put(field, row.getAs(field));
+        });
+        
+        return featureMap;
+    }
+}
+
+3.3 ONLINE FEATURE SERVING:
+--------------------------
+@RestController
+@RequestMapping("/api/features")
+public class FeatureServingController {
+    
+    @Autowired
+    private FeatureStoreService featureStoreService;
+    
+    @GetMapping("/customer/{customerId}")
+    public ResponseEntity<Map<String, Object>> getCustomerFeatures(@PathVariable String customerId) {
+        try {
+            Map<String, Object> features = featureStoreService.getCustomerFeatures(customerId);
+            
+            if (features.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            return ResponseEntity.ok(features);
+            
+        } catch (Exception e) {
+            logger.error("Error retrieving features for customer: {}", customerId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+    
+    @PostMapping("/batch")
+    public ResponseEntity<Map<String, Map<String, Object>>> getBatchFeatures(
+            @RequestBody List<String> customerIds) {
+        
+        Map<String, Map<String, Object>> batchFeatures = new HashMap<>();
+        
+        for (String customerId : customerIds) {
+            Map<String, Object> features = featureStoreService.getCustomerFeatures(customerId);
+            batchFeatures.put(customerId, features);
+        }
+        
+        return ResponseEntity.ok(batchFeatures);
+    }
+}
+
+================================================================================
+4. DATA QUALITY AND GOVERNANCE
+================================================================================
+
+4.1 DATA QUALITY VALIDATION:
+----------------------------
+@Component
+public class DataQualityService {
+    
+    @Autowired
+    private SparkSession spark;
+    
+    public DataQualityReport validateDataset(String tableName) {
+        Dataset<Row> dataset = spark.table(tableName);
+        
+        List<DataQualityCheck> checks = Arrays.asList(
+            new CompletenessCheck("customer_id", 0.95),
+            new UniquenessCheck("transaction_id", 1.0),
+            new RangeCheck("amount", 0.0, 1000000.0),
+            new FormatCheck("email", "^[A-Za-z0-9+_.-]+@(.+)$"),
+            new ConsistencyCheck("transaction_date", "created_date")
+        );
+        
+        List<DataQualityResult> results = checks.stream()
+            .map(check -> executeCheck(dataset, check))
+            .collect(Collectors.toList());
+        
+        return DataQualityReport.builder()
+            .tableName(tableName)
+            .recordCount(dataset.count())
+            .checks(results)
+            .overallScore(calculateOverallScore(results))
+            .timestamp(Instant.now())
+            .build();
+    }
+    
+    private DataQualityResult executeCheck(Dataset<Row> dataset, DataQualityCheck check) {
+        switch (check.getType()) {
+            case COMPLETENESS:
+                return checkCompleteness(dataset, check);
+            case UNIQUENESS:
+                return checkUniqueness(dataset, check);
+            case RANGE:
+                return checkRange(dataset, check);
+            case FORMAT:
+                return checkFormat(dataset, check);
+            default:
+                throw new UnsupportedOperationException("Check type not supported: " + check.getType());
+        }
+    }
+    
+    private DataQualityResult checkCompleteness(Dataset<Row> dataset, DataQualityCheck check) {
+        long totalRecords = dataset.count();
+        long nonNullRecords = dataset.filter(col(check.getColumn()).isNotNull()).count();
+        double completeness = (double) nonNullRecords / totalRecords;
+        
+        return DataQualityResult.builder()
+            .checkName(check.getName())
+            .column(check.getColumn())
+            .expectedValue(check.getThreshold())
+            .actualValue(completeness)
+            .passed(completeness >= check.getThreshold())
+            .build();
+    }
+    
+    @Scheduled(cron = "0 0 6 * * ?") // Daily at 6 AM
+    public void runDataQualityChecks() {
+        List<String> tables = Arrays.asList(
+            "transactions", "customers", "products", "user_events"
+        );
+        
+        for (String table : tables) {
+            DataQualityReport report = validateDataset(table);
+            saveReport(report);
+            
+            if (report.getOverallScore() < 0.85) {
+                sendDataQualityAlert(report);
+            }
+        }
+    }
+}
+
+4.2 DATA LINEAGE TRACKING:
+-------------------------
+@Component
+public class DataLineageService {
+    
+    @Autowired
+    private SparkSession spark;
+    
+    public void trackDataLineage(String jobName, List<String> inputTables, String outputTable) {
+        DataLineageEvent event = DataLineageEvent.builder()
+            .jobName(jobName)
+            .inputTables(inputTables)
+            .outputTable(outputTable)
+            .timestamp(Instant.now())
+            .sparkApplicationId(spark.sparkContext().applicationId())
+            .user(System.getProperty("user.name"))
+            .build();
+        
+        // Store lineage information
+        saveLineageEvent(event);
+        
+        // Update lineage graph
+        updateLineageGraph(event);
+    }
+    
+    public LineageGraph getLineageGraph(String tableName) {
+        // Build lineage graph showing upstream and downstream dependencies
+        List<DataLineageEvent> upstreamEvents = getUpstreamEvents(tableName);
+        List<DataLineageEvent> downstreamEvents = getDownstreamEvents(tableName);
+        
+        return LineageGraph.builder()
+            .rootTable(tableName)
+            .upstreamTables(extractTableNames(upstreamEvents))
+            .downstreamTables(extractTableNames(downstreamEvents))
+            .build();
+    }
+    
+    @EventListener
+    public void onSparkJobStart(SparkJobStartEvent event) {
+        // Automatically capture lineage from Spark execution plans
+        String jobDescription = event.getJobDescription();
+        if (jobDescription.contains("SQL") || jobDescription.contains("DataFrame")) {
+            extractLineageFromSparkPlan(event);
+        }
+    }
+}
+
+4.3 GDPR COMPLIANCE:
+------------------
+@Service
+public class GDPRComplianceService {
+    
+    @Autowired
+    private SparkSession spark;
+    
+    public void handleDataDeletionRequest(String customerId) {
+        // Delete from all tables containing customer data
+        List<String> tables = Arrays.asList(
+            "transactions", "user_events", "customer_profiles", 
+            "recommendations", "audit_logs"
+        );
+        
+        for (String table : tables) {
+            Dataset<Row> filteredData = spark.table(table)
+                .filter(col("customer_id").notEqual(customerId));
+            
+            filteredData
+                .write()
+                .format("delta")
+                .mode(SaveMode.Overwrite)
+                .saveAsTable(table);
+        }
+        
+        // Log deletion for audit
+        logDataDeletion(customerId, tables);
+    }
+    
+    public CustomerDataExport exportCustomerData(String customerId) {
+        Map<String, Dataset<Row>> customerData = new HashMap<>();
+        
+        // Extract all customer data
+        customerData.put("profile", 
+            spark.table("customers").filter(col("customer_id").equalTo(customerId)));
+        
+        customerData.put("transactions", 
+            spark.table("transactions").filter(col("customer_id").equalTo(customerId)));
+        
+        customerData.put("events", 
+            spark.table("user_events").filter(col("user_id").equalTo(customerId)));
+        
+        // Convert to exportable format
+        Map<String, List<Map<String, Object>>> exportData = customerData.entrySet()
+            .stream()
+            .collect(Collectors.toMap(
+                Map.Entry::getKey,
+                entry -> convertDataFrameToMap(entry.getValue())
+            ));
+        
+        return CustomerDataExport.builder()
+            .customerId(customerId)
+            .data(exportData)
+            .exportDate(Instant.now())
+            .build();
+    }
+    
+    public void anonymizeCustomerData(String customerId) {
+        // Anonymize rather than delete for analytical purposes
+        spark.sql("""
+            UPDATE customers
+            SET 
+                name = 'ANONYMIZED',
+                email = CONCAT('anon_', customer_id, '@example.com'),
+                phone = 'ANONYMIZED',
+                address = 'ANONYMIZED'
+            WHERE customer_id = ?
+            """, customerId);
+        
+        // Anonymize transaction data
+        spark.sql("""
+            UPDATE transactions
+            SET 
+                merchant_name = 'ANONYMIZED',
+                description = 'ANONYMIZED'
+            WHERE customer_id = ?
+            """, customerId);
+    }
+}
+
+================================================================================
+5. SECURITY AND COMPLIANCE
+================================================================================
+
+5.1 DATA ENCRYPTION:
+-------------------
+@Configuration
+public class SecurityConfig {
+    
+    @Bean
+    public AESUtil aesUtil() {
+        return new AESUtil();
+    }
+    
+    @Bean
+    public EncryptionService encryptionService() {
+        return new EncryptionService(aesUtil());
+    }
+}
+
+@Service
+public class EncryptionService {
+    
+    private final AESUtil aesUtil;
+    
+    public EncryptionService(AESUtil aesUtil) {
+        this.aesUtil = aesUtil;
+    }
+    
+    public String encryptPII(String plainText) {
+        return aesUtil.encrypt(plainText, getEncryptionKey());
+    }
+    
+    public String decryptPII(String encryptedText) {
+        return aesUtil.decrypt(encryptedText, getEncryptionKey());
+    }
+    
+    private String getEncryptionKey() {
+        // Retrieve from secure key management system
+        return System.getenv("ENCRYPTION_KEY");
+    }
+}
+
+// Spark UDF for encryption
+public class EncryptionUDF implements UDF1<String, String> {
+    @Override
+    public String call(String value) throws Exception {
+        EncryptionService encryptionService = SpringContext.getBean(EncryptionService.class);
+        return encryptionService.encryptPII(value);
+    }
+}
+
+// Register UDF
+spark.udf().register("encrypt_pii", new EncryptionUDF(), DataTypes.StringType);
+
+// Use in DataFrame operations
+Dataset<Row> encryptedCustomers = spark.sql("""
+    SELECT 
+        customer_id,
+        encrypt_pii(name) as encrypted_name,
+        encrypt_pii(email) as encrypted_email,
+        amount
+    FROM customers
+    """);
+
+5.2 ACCESS CONTROL:
+------------------
+@Component
+public class DataAccessControl {
+    
+    @Autowired
+    private SparkSession spark;
+    
+    @PostConstruct
+    public void setupRowLevelSecurity() {
+        // Create views with row-level security
+        spark.sql("""
+            CREATE OR REPLACE VIEW customer_transactions_secure AS
+            SELECT * FROM transactions
+            WHERE customer_id IN (
+                SELECT customer_id FROM user_permissions 
+                WHERE user_name = current_user() 
+                AND permission_type = 'READ'
+            )
+            """);
+    }
+    
+    public Dataset<Row> getAuthorizedData(String tableName, String userId) {
+        // Check user permissions
+        List<String> allowedColumns = getUserAllowedColumns(userId, tableName);
+        List<String> allowedRows = getUserAllowedRows(userId, tableName);
+        
+        Dataset<Row> data = spark.table(tableName);
+        
+        // Apply column-level security
+        if (!allowedColumns.contains("*")) {
+            data = data.select(allowedColumns.toArray(new String[0]));
+        }
+        
+        // Apply row-level security
+        if (!allowedRows.isEmpty()) {
+            String rowFilter = allowedRows.stream()
+                .collect(Collectors.joining(" OR "));
+            data = data.filter(rowFilter);
+        }
+        
+        return data;
+    }
+    
+    @PreAuthorize("hasRole('DATA_ANALYST')")
+    public Dataset<Row> getAnalyticsData(String query) {
+        return spark.sql(query);
+    }
+}
+
+5.3 AUDIT LOGGING:
+-----------------
+@Component
+public class AuditService {
+    
+    @Autowired
+    private KafkaTemplate<String, Object> kafkaTemplate;
+    
+    @EventListener
+    public void onDataAccess(DataAccessEvent event) {
+        AuditLog auditLog = AuditLog.builder()
+            .eventType("DATA_ACCESS")
+            .userId(event.getUserId())
+            .tableName(event.getTableName())
+            .columns(event.getAccessedColumns())
+            .timestamp(Instant.now())
+            .ipAddress(event.getIpAddress())
+            .sessionId(event.getSessionId())
+            .build();
+        
+        kafkaTemplate.send("audit-logs", auditLog.getId(), auditLog);
+    }
+    
+    @EventListener
+    public void onDataModification(DataModificationEvent event) {
+        AuditLog auditLog = AuditLog.builder()
+            .eventType("DATA_MODIFICATION")
+            .userId(event.getUserId())
+            .tableName(event.getTableName())
+            .operation(event.getOperation())
+            .recordsAffected(event.getRecordsAffected())
+            .timestamp(Instant.now())
+            .build();
+        
+        kafkaTemplate.send("audit-logs", auditLog.getId(), auditLog);
+    }
+}
+
+================================================================================
+6. PERFORMANCE TUNING CHECKLIST
+================================================================================
+
+6.1 SPARK PERFORMANCE OPTIMIZATION:
+----------------------------------
+□ Enable Adaptive Query Execution (AQE)
+□ Use appropriate file formats (Parquet, Delta)
+□ Implement proper partitioning strategy
+□ Cache frequently accessed DataFrames
+□ Use broadcast joins for small tables
+□ Optimize number of partitions
+□ Enable column pruning and predicate pushdown
+□ Use bucketing for frequent joins
+□ Monitor and tune memory settings
+□ Use appropriate serialization (Kryo)
+
+6.2 KAFKA PERFORMANCE OPTIMIZATION:
+----------------------------------
+□ Configure appropriate batch size
+□ Tune linger.ms for throughput
+□ Use compression (snappy, lz4)
+□ Optimize partition count
+□ Monitor consumer lag
+□ Use appropriate replication factor
+□ Tune OS page cache settings
+□ Configure proper retention policies
+□ Use producer batching
+□ Monitor broker metrics
+
+6.3 DATABASE OPTIMIZATION:
+-------------------------
+□ Create appropriate indexes
+□ Use connection pooling
+□ Implement query optimization
+□ Monitor slow queries
+□ Use partitioning for large tables
+□ Implement proper caching
+□ Optimize batch operations
+□ Use read replicas for scaling
+□ Monitor database metrics
+□ Implement archiving strategies
+
+================================================================================
+7. MONITORING AND ALERTING
+================================================================================
+
+7.1 COMPREHENSIVE MONITORING SETUP:
+----------------------------------
+# Prometheus configuration (prometheus.yml)
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'spring-boot'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['localhost:8080']
+  
+  - job_name: 'spark'
+    static_configs:
+      - targets: ['spark-master:8080']
+  
+  - job_name: 'kafka'
+    static_configs:
+      - targets: ['kafka:9092']
+
+# Grafana dashboard configuration
+{
+  "dashboard": {
+    "title": "Big Data Platform Monitoring",
+    "panels": [
+      {
+        "title": "Kafka Message Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(kafka_server_brokertopicmetrics_messagesinpersec[5m])"
+          }
+        ]
+      },
+      {
+        "title": "Spark Job Duration",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "spark_streaming_batch_processing_time"
+          }
+        ]
+      }
+    ]
+  }
+}
+
+7.2 CUSTOM ALERTS:
+-----------------
+# AlertManager rules (alerts.yml)
+groups:
+  - name: bigdata.rules
+    rules:
+      - alert: KafkaConsumerLag
+        expr: kafka_consumer_lag_sum > 10000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Kafka consumer lag detected"
+      
+      - alert: SparkJobFailure
+        expr: increase(spark_streaming_batch_failed_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Spark streaming job failed"
+      
+      - alert: DataQualityIssue
+        expr: data_quality_score < 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Data quality score below threshold"
+
+================================================================================
+FINAL RECOMMENDATIONS
+================================================================================
+
+1. CONTINUOUS LEARNING:
+   - Stay updated with latest versions
+   - Follow technology blogs and conferences
+   - Practice with real datasets
+   - Contribute to open source projects
+
+2. PRODUCTION READINESS:
+   - Implement proper monitoring
+   - Set up alerting and logging
+   - Plan for disaster recovery
+   - Document your architecture
+
+3. SCALING STRATEGIES:
+   - Design for horizontal scaling
+   - Use cloud services when appropriate
+   - Implement auto-scaling
+   - Monitor resource utilization
+
+4. COST OPTIMIZATION:
+   - Right-size your infrastructure
+   - Use spot instances for batch jobs
+   - Implement data lifecycle policies
+   - Monitor and optimize storage costs
+
+5. TEAM PRACTICES:
+   - Establish coding standards
+   - Implement CI/CD pipelines
+   - Use version control for everything
+   - Regular architecture reviews
+
+CONGRATULATIONS! You now have enterprise-level Big Data expertise!

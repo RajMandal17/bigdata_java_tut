@@ -1,0 +1,526 @@
+================================================================================
+                        QUICK REFERENCE & SETUP GUIDE
+================================================================================
+
+ESSENTIAL COMMANDS AND CONFIGURATIONS
+
+================================================================================
+1. DEVELOPMENT ENVIRONMENT SETUP
+================================================================================
+
+1.1 REQUIRED SOFTWARE INSTALLATION:
+----------------------------------
+# Java 11 installation (Ubuntu/Debian)
+sudo apt update
+sudo apt install openjdk-11-jdk
+export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
+
+# Maven installation
+sudo apt install maven
+
+# Docker installation
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+sudo usermod -aG docker $USER
+
+# Docker Compose installation
+sudo curl -L "https://github.com/docker/compose/releases/download/v2.20.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+
+1.2 QUICK START DOCKER COMPOSE:
+------------------------------
+# Create docker-compose.yml
+version: '3.8'
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: bigdata_db
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  mongodb:
+    image: mongo:5.0
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    depends_on: [zookeeper]
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+
+  spark-master:
+    image: bitnami/spark:3.4
+    environment:
+      SPARK_MODE: master
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+
+  spark-worker:
+    image: bitnami/spark:3.4
+    depends_on: [spark-master]
+    environment:
+      SPARK_MODE: worker
+      SPARK_MASTER_URL: spark://spark-master:7077
+
+volumes:
+  mysql_data:
+  mongo_data:
+
+# Start all services
+docker-compose up -d
+
+================================================================================
+2. KAFKA COMMANDS REFERENCE
+================================================================================
+
+2.1 TOPIC MANAGEMENT:
+--------------------
+# Create topic
+kafka-topics --create --topic my-topic --partitions 3 --replication-factor 1 --bootstrap-server localhost:9092
+
+# List topics
+kafka-topics --list --bootstrap-server localhost:9092
+
+# Describe topic
+kafka-topics --describe --topic my-topic --bootstrap-server localhost:9092
+
+# Delete topic
+kafka-topics --delete --topic my-topic --bootstrap-server localhost:9092
+
+2.2 PRODUCER/CONSUMER:
+---------------------
+# Console producer
+kafka-console-producer --topic my-topic --bootstrap-server localhost:9092
+
+# Console consumer
+kafka-console-consumer --topic my-topic --from-beginning --bootstrap-server localhost:9092
+
+# Consumer groups
+kafka-consumer-groups --list --bootstrap-server localhost:9092
+kafka-consumer-groups --describe --group my-group --bootstrap-server localhost:9092
+
+2.3 PERFORMANCE TESTING:
+-----------------------
+# Producer performance test
+kafka-producer-perf-test --topic my-topic --num-records 100000 --record-size 1024 --throughput 10000 --producer-props bootstrap.servers=localhost:9092
+
+# Consumer performance test
+kafka-consumer-perf-test --topic my-topic --messages 100000 --bootstrap-server localhost:9092
+
+================================================================================
+3. SPARK COMMANDS REFERENCE
+================================================================================
+
+3.1 SPARK SUBMIT:
+----------------
+# Submit Spark application
+spark-submit \
+  --class com.bigdata.MySparkApp \
+  --master spark://localhost:7077 \
+  --executor-memory 2g \
+  --total-executor-cores 4 \
+  my-spark-app.jar
+
+# Submit with dependencies
+spark-submit \
+  --class com.bigdata.MySparkApp \
+  --master spark://localhost:7077 \
+  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1 \
+  my-spark-app.jar
+
+3.2 SPARK SQL CLI:
+-----------------
+# Start Spark SQL CLI
+spark-sql --master spark://localhost:7077
+
+# Common SQL commands
+CREATE TABLE transactions USING PARQUET LOCATION '/data/transactions';
+SHOW TABLES;
+DESCRIBE transactions;
+SELECT COUNT(*) FROM transactions;
+
+3.3 SPARK SHELL:
+---------------
+# Start Spark shell (Scala)
+spark-shell --master spark://localhost:7077
+
+# Start PySpark (Python)
+pyspark --master spark://localhost:7077
+
+================================================================================
+4. DATABASE COMMANDS REFERENCE
+================================================================================
+
+4.1 MYSQL COMMANDS:
+------------------
+# Connect to MySQL
+mysql -h localhost -u root -p
+
+# Common operations
+CREATE DATABASE bigdata_db;
+USE bigdata_db;
+SHOW TABLES;
+DESCRIBE table_name;
+
+# Performance tuning
+SHOW VARIABLES LIKE 'innodb_buffer_pool_size';
+SHOW ENGINE INNODB STATUS;
+EXPLAIN SELECT * FROM table_name WHERE condition;
+
+4.2 MONGODB COMMANDS:
+--------------------
+# Connect to MongoDB
+mongosh "mongodb://localhost:27017"
+
+# Common operations
+use bigdata_db
+show collections
+db.events.find().limit(5)
+db.events.countDocuments()
+
+# Index operations
+db.events.createIndex({userId: 1, timestamp: -1})
+db.events.getIndexes()
+
+# Aggregation
+db.events.aggregate([
+  {$match: {eventType: "purchase"}},
+  {$group: {_id: "$userId", total: {$sum: "$amount"}}}
+])
+
+================================================================================
+5. SPRING BOOT CONFIGURATION REFERENCE
+================================================================================
+
+5.1 APPLICATION.YML TEMPLATE:
+----------------------------
+spring:
+  application:
+    name: bigdata-application
+  
+  # Database configuration
+  datasource:
+    url: jdbc:mysql://localhost:3306/bigdata_db
+    username: root
+    password: password
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+  
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    
+  # MongoDB configuration
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/bigdata_mongo
+  
+  # Kafka configuration
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: bigdata-group
+      auto-offset-reset: earliest
+    producer:
+      acks: 1
+      retries: 3
+
+# Spark configuration
+spark:
+  app:
+    name: BigData-Spark-App
+  master: spark://localhost:7077
+
+# Actuator configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+
+5.2 POM.XML TEMPLATE:
+-------------------
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+    <modelVersion>4.0.0</modelVersion>
+    
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>2.7.14</version>
+        <relativePath/>
+    </parent>
+    
+    <groupId>com.bigdata</groupId>
+    <artifactId>bigdata-application</artifactId>
+    <version>1.0.0</version>
+    
+    <properties>
+        <java.version>11</java.version>
+        <spark.version>3.4.1</spark.version>
+        <kafka.version>3.5.1</kafka.version>
+    </properties>
+    
+    <dependencies>
+        <!-- Spring Boot starters -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-mongodb</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        
+        <!-- Kafka -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
+        
+        <!-- Spark -->
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-core_2.12</artifactId>
+            <version>${spark.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-sql_2.12</artifactId>
+            <version>${spark.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-streaming_2.12</artifactId>
+            <version>${spark.version}</version>
+        </dependency>
+        
+        <!-- Database drivers -->
+        <dependency>
+            <groupId>mysql</groupId>
+            <artifactId>mysql-connector-java</artifactId>
+        </dependency>
+        
+        <!-- Testing -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+    
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+
+================================================================================
+6. TROUBLESHOOTING GUIDE
+================================================================================
+
+6.1 COMMON ISSUES AND SOLUTIONS:
+-------------------------------
+ISSUE: Kafka connection refused
+SOLUTION: 
+- Check if Kafka is running: docker ps
+- Verify port 9092 is accessible: telnet localhost 9092
+- Check Kafka logs: docker logs kafka
+
+ISSUE: Spark job fails with OutOfMemoryError
+SOLUTION:
+- Increase executor memory: --executor-memory 4g
+- Increase driver memory: --driver-memory 2g
+- Reduce partition size or increase partitions
+
+ISSUE: MySQL connection timeout
+SOLUTION:
+- Check connection pool settings
+- Verify MySQL is running and accessible
+- Check network connectivity
+- Review HikariCP configuration
+
+ISSUE: MongoDB connection failed
+SOLUTION:
+- Verify MongoDB is running: mongosh --eval "db.runCommand('ping')"
+- Check connection string format
+- Verify authentication credentials
+
+6.2 PERFORMANCE TROUBLESHOOTING:
+------------------------------
+SLOW QUERIES:
+- Use EXPLAIN for SQL queries
+- Check index usage
+- Review query execution plans
+- Monitor database performance metrics
+
+HIGH KAFKA LAG:
+- Increase consumer parallelism
+- Optimize consumer processing logic
+- Check partition distribution
+- Monitor consumer group metrics
+
+SPARK JOB SLOWNESS:
+- Check Spark UI for bottlenecks
+- Review DAG visualization
+- Optimize join strategies
+- Check data skew issues
+
+================================================================================
+7. USEFUL MONITORING QUERIES
+================================================================================
+
+7.1 KAFKA MONITORING:
+--------------------
+# Check consumer lag
+kafka-consumer-groups --bootstrap-server localhost:9092 --describe --group my-group
+
+# Topic statistics
+kafka-run-class kafka.tools.GetOffsetShell --broker-list localhost:9092 --topic my-topic
+
+7.2 SPARK MONITORING:
+--------------------
+-- Check running applications
+SELECT * FROM spark_applications WHERE status = 'RUNNING';
+
+-- Job statistics
+SELECT job_id, name, status, start_time, end_time 
+FROM spark_jobs 
+ORDER BY start_time DESC 
+LIMIT 10;
+
+7.3 DATABASE MONITORING:
+-----------------------
+-- MySQL slow queries
+SELECT * FROM mysql.slow_log ORDER BY start_time DESC LIMIT 10;
+
+-- Connection statistics
+SHOW STATUS LIKE 'Threads_connected';
+SHOW STATUS LIKE 'Max_used_connections';
+
+-- MongoDB operations
+db.runCommand({currentOp: 1})
+db.stats()
+
+================================================================================
+8. PRODUCTION DEPLOYMENT CHECKLIST
+================================================================================
+
+8.1 PRE-DEPLOYMENT:
+------------------
+□ Code reviewed and tested
+□ Performance testing completed
+□ Security scanning passed
+□ Documentation updated
+□ Backup procedures verified
+□ Rollback plan prepared
+
+8.2 CONFIGURATION:
+-----------------
+□ Environment-specific configurations
+□ Database connection pools tuned
+□ JVM parameters optimized
+□ Log levels configured
+□ Monitoring and alerting setup
+□ Health checks implemented
+
+8.3 POST-DEPLOYMENT:
+-------------------
+□ Application health verified
+□ Metrics and logs reviewed
+□ Performance baselines established
+□ Alerts tested
+□ Team notified
+□ Documentation updated
+
+================================================================================
+9. LEARNING RESOURCES
+================================================================================
+
+9.1 OFFICIAL DOCUMENTATION:
+--------------------------
+• Apache Spark: https://spark.apache.org/docs/latest/
+• Apache Kafka: https://kafka.apache.org/documentation/
+• Spring Boot: https://spring.io/projects/spring-boot
+• MySQL: https://dev.mysql.com/doc/
+• MongoDB: https://docs.mongodb.com/
+
+9.2 RECOMMENDED BOOKS:
+---------------------
+• "Learning Spark" by Jules Damji
+• "Kafka: The Definitive Guide" by Neha Narkhede
+• "Spring Boot in Action" by Craig Walls
+• "Designing Data-Intensive Applications" by Martin Kleppmann
+
+9.3 ONLINE COURSES:
+------------------
+• Coursera Big Data Specialization
+• Udemy Spark and Kafka courses
+• Pluralsight Spring Boot paths
+• edX Data Science courses
+
+================================================================================
+10. COMMUNITY AND SUPPORT
+================================================================================
+
+10.1 FORUMS AND COMMUNITIES:
+---------------------------
+• Stack Overflow
+• Apache Spark user mailing list
+• Kafka community Slack
+• Spring community forums
+• Reddit r/bigdata
+
+10.2 CONFERENCES:
+----------------
+• Spark Summit
+• Kafka Summit
+• SpringOne
+• Strata Data Conference
+• Big Data World
+
+This completes your comprehensive Big Data learning journey!
+Start with the basics and gradually work through each module.
+Practice regularly and build real projects to solidify your knowledge.
+
+Good luck with your Big Data career!

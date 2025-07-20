@@ -1,0 +1,32 @@
+[mysqld]
+# Memory settings for Big Data
+innodb_buffer_pool_size = 2G
+innodb_log_file_size = 512M
+innodb_flush_log_at_trx_commit = 2
+
+# Connection settings
+max_connections = 200
+thread_cache_size = 50
+
+# Query optimization
+query_cache_size = 0
+tmp_table_size = 512M
+max_heap_table_size = 512M
+
+# InnoDB settings for performance
+innodb_file_per_table = 1
+innodb_flush_method = O_DIRECT
+innodb_read_io_threads = 4
+innodb_write_io_threads = 4
+
+# Binary logging for replication
+log_bin = mysql-bin
+binlog_format = ROW
+expire_logs_days = 7
+
+# Character set
+character_set_server = utf8mb4
+collation_server = utf8mb4_unicode_ci
+
+# Performance Schema
+performance_schema = ON

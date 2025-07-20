@@ -1,0 +1,77 @@
+[
+  {
+    "event_id": "EVT001",
+    "event_type": "page_view",
+    "user_id": "USER001",
+    "session_id": "SESS001",
+    "event_timestamp": "2024-07-20T10:15:30Z",
+    "source": "web",
+    "ip_address": "192.168.1.100",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "event_data": {
+      "page": "/products",
+      "referrer": "https://google.com",
+      "duration": 45
+    }
+  },
+  {
+    "event_id": "EVT002",
+    "event_type": "click",
+    "user_id": "USER001",
+    "session_id": "SESS001",
+    "event_timestamp": "2024-07-20T10:16:15Z",
+    "source": "web",
+    "ip_address": "192.168.1.100",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "event_data": {
+      "element": "add_to_cart_button",
+      "product_id": "PROD001",
+      "category": "Electronics"
+    }
+  },
+  {
+    "event_id": "EVT003",
+    "event_type": "purchase",
+    "user_id": "USER001",
+    "session_id": "SESS001",
+    "event_timestamp": "2024-07-20T10:18:45Z",
+    "source": "web",
+    "ip_address": "192.168.1.100",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "event_data": {
+      "transaction_id": "TXN001",
+      "amount": 1499.99,
+      "payment_method": "credit_card"
+    }
+  },
+  {
+    "event_id": "EVT004",
+    "event_type": "page_view",
+    "user_id": "USER002",
+    "session_id": "SESS002",
+    "event_timestamp": "2024-07-20T10:20:00Z",
+    "source": "mobile",
+    "ip_address": "192.168.1.101",
+    "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X)",
+    "event_data": {
+      "page": "/home",
+      "referrer": "direct",
+      "duration": 30
+    }
+  },
+  {
+    "event_id": "EVT005",
+    "event_type": "search",
+    "user_id": "USER002",
+    "session_id": "SESS002",
+    "event_timestamp": "2024-07-20T10:21:30Z",
+    "source": "mobile",
+    "ip_address": "192.168.1.101",
+    "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X)",
+    "event_data": {
+      "query": "wireless headphones",
+      "results_count": 42,
+      "filters": ["electronics", "audio"]
+    }
+  }
+]

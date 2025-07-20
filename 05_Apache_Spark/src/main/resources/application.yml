@@ -1,0 +1,187 @@
+server:
+  port: 8090
+  servlet:
+    context-path: /spark-platform
+
+spring:
+  application:
+    name: apache-spark-bigdata-platform
+  profiles:
+    active: development
+  
+  # Jackson configuration
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+      fail-on-empty-beans: false
+    deserialization:
+      fail-on-unknown-properties: false
+    default-property-inclusion: non_null
+
+  # Database configuration
+  datasource:
+    url: jdbc:postgresql://localhost:5432/spark_db
+    username: spark_user
+    password: spark_password
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      connection-timeout: 30000
+      maximum-pool-size: 10
+      minimum-idle: 5
+
+# Spark Configuration
+spark:
+  app:
+    name: "BigData-Spark-Platform"
+  master: "local[*]"  # Change to "spark://localhost:7077" for cluster mode
+  sql:
+    warehouse:
+      dir: "/tmp/spark-warehouse"
+  serializer: "org.apache.spark.serializer.KryoSerializer"
+  sql:
+    adaptive:
+      enabled: true
+      coalescePartitions:
+        enabled: true
+  streaming:
+    batch:
+      duration: 10  # seconds
+
+# Kafka Configuration
+kafka:
+  bootstrap:
+    servers: localhost:9092
+  topic:
+    events: events-topic
+    transactions: transactions-topic
+    alerts: alerts-topic
+  consumer:
+    group-id: spark-consumer-group
+    auto-offset-reset: latest
+    enable-auto-commit: true
+  producer:
+    retries: 3
+    batch-size: 16384
+    linger-ms: 1
+    buffer-memory: 33554432
+
+# Streaming Configuration
+streaming:
+  checkpoint:
+    location: /tmp/spark-streaming-checkpoint
+  batch:
+    interval: 10s
+  watermark:
+    delay: 2m
+
+# Monitoring and Management
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+  endpoint:
+    health:
+      show-details: always
+    metrics:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      slo:
+        http.server.requests: 100ms,500ms,1s,2s,5s
+    tags:
+      application: ${spring.application.name}
+
+# Logging Configuration
+logging:
+  level:
+    com.bigdata.spark: INFO
+    org.apache.spark: WARN
+    org.apache.hadoop: WARN
+    org.apache.kafka: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/spark-platform.log
+    max-size: 100MB
+    max-history: 30
+
+# Custom Application Properties
+app:
+  data:
+    input:
+      path: /data/input
+    output:
+      path: /data/output
+    checkpoint:
+      path: /data/checkpoint
+  ml:
+    models:
+      path: /models
+    feature:
+      store:
+        path: /features
+  performance:
+    cache:
+      enabled: true
+    optimization:
+      enabled: true
+  security:
+    enabled: false  # Enable in production
+    
+---
+# Development Profile
+spring:
+  config:
+    activate:
+      on-profile: development
+  
+spark:
+  master: "local[*]"
+  
+logging:
+  level:
+    com.bigdata.spark: DEBUG
+    
+---
+# Production Profile
+spring:
+  config:
+    activate:
+      on-profile: production
+
+spark:
+  master: "spark://spark-master:7077"
+  
+app:
+  security:
+    enabled: true
+    
+logging:
+  level:
+    com.bigdata.spark: INFO
+    root: WARN
+
+---
+# Docker Profile
+spring:
+  config:
+    activate:
+      on-profile: docker
+
+spark:
+  master: "spark://spark-master:7077"
+  
+kafka:
+  bootstrap:
+    servers: kafka:9092
+    
+spring:
+  datasource:
+    url: jdbc:postgresql://postgres:5432/spark_db

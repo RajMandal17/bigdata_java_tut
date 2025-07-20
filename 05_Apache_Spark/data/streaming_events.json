@@ -1,0 +1,22 @@
+[
+  {"timestamp": "2024-01-15T10:30:00Z", "userId": "user001", "event": "page_view", "page": "home", "duration": 45, "deviceType": "desktop", "location": "US"},
+  {"timestamp": "2024-01-15T10:31:15Z", "userId": "user002", "event": "click", "page": "product", "duration": 12, "deviceType": "mobile", "location": "UK"},
+  {"timestamp": "2024-01-15T10:32:30Z", "userId": "user003", "event": "purchase", "page": "checkout", "duration": 180, "deviceType": "tablet", "location": "CA"},
+  {"timestamp": "2024-01-15T10:33:45Z", "userId": "user001", "event": "click", "page": "category", "duration": 25, "deviceType": "desktop", "location": "US"},
+  {"timestamp": "2024-01-15T10:35:00Z", "userId": "user004", "event": "page_view", "page": "about", "duration": 60, "deviceType": "mobile", "location": "DE"},
+  {"timestamp": "2024-01-15T10:36:15Z", "userId": "user002", "event": "add_to_cart", "page": "product", "duration": 8, "deviceType": "mobile", "location": "UK"},
+  {"timestamp": "2024-01-15T10:37:30Z", "userId": "user005", "event": "search", "page": "search", "duration": 15, "deviceType": "desktop", "location": "FR"},
+  {"timestamp": "2024-01-15T10:38:45Z", "userId": "user003", "event": "page_view", "page": "confirmation", "duration": 30, "deviceType": "tablet", "location": "CA"},
+  {"timestamp": "2024-01-15T10:40:00Z", "userId": "user006", "event": "login", "page": "login", "duration": 20, "deviceType": "mobile", "location": "AU"},
+  {"timestamp": "2024-01-15T10:41:15Z", "userId": "user001", "event": "purchase", "page": "checkout", "duration": 120, "deviceType": "desktop", "location": "US"},
+  {"timestamp": "2024-01-15T10:42:30Z", "userId": "user007", "event": "page_view", "page": "blog", "duration": 90, "deviceType": "desktop", "location": "JP"},
+  {"timestamp": "2024-01-15T10:43:45Z", "userId": "user004", "event": "click", "page": "contact", "duration": 5, "deviceType": "mobile", "location": "DE"},
+  {"timestamp": "2024-01-15T10:45:00Z", "userId": "user008", "event": "signup", "page": "register", "duration": 150, "deviceType": "tablet", "location": "BR"},
+  {"timestamp": "2024-01-15T10:46:15Z", "userId": "user002", "event": "purchase", "page": "checkout", "duration": 95, "deviceType": "mobile", "location": "UK"},
+  {"timestamp": "2024-01-15T10:47:30Z", "userId": "user009", "event": "page_view", "page": "faq", "duration": 75, "deviceType": "desktop", "location": "IN"},
+  {"timestamp": "2024-01-15T10:48:45Z", "userId": "user005", "event": "add_to_cart", "page": "product", "duration": 10, "deviceType": "desktop", "location": "FR"},
+  {"timestamp": "2024-01-15T10:50:00Z", "userId": "user010", "event": "page_view", "page": "home", "duration": 35, "deviceType": "mobile", "location": "MX"},
+  {"timestamp": "2024-01-15T10:51:15Z", "userId": "user006", "event": "click", "page": "product", "duration": 18, "deviceType": "mobile", "location": "AU"},
+  {"timestamp": "2024-01-15T10:52:30Z", "userId": "user007", "event": "search", "page": "search", "duration": 22, "deviceType": "desktop", "location": "JP"},
+  {"timestamp": "2024-01-15T10:53:45Z", "userId": "user003", "event": "logout", "page": "home", "duration": 2, "deviceType": "tablet", "location": "CA"}
+]
