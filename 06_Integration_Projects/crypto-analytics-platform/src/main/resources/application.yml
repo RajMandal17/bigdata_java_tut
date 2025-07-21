@@ -1,0 +1,205 @@
+# Application Configuration
+spring:
+  application:
+    name: crypto-analytics-platform
+  profiles:
+    active: local
+    
+  # Database Configuration
+  datasource:
+    url: jdbc:mysql://localhost:3306/crypto_analytics?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:password}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQL8Dialect
+        format_sql: true
+        
+  # MongoDB Configuration
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/crypto_analytics
+      
+  # Redis Configuration
+  redis:
+    host: localhost
+    port: 6379
+    timeout: 2000ms
+    lettuce:
+      pool:
+        max-active: 20
+        max-wait: -1ms
+        
+  # Kafka Configuration
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: crypto-analytics-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      properties:
+        spring.json.trusted.packages: "com.bigdata.crypto.*"
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      
+# Gitbitex Integration Configuration
+gitbitex:
+  api:
+    base-url: http://127.0.0.1
+    admin-endpoint: /api/admin
+    public-endpoint: /api
+    timeout: 30s
+  monitoring:
+    prometheus-url: http://127.0.0.1:7002/actuator/prometheus
+  websocket:
+    endpoint: ws://127.0.0.1/ws
+    
+# Spark Configuration
+spark:
+  app-name: crypto-analytics-spark
+  master: local[*]
+  sql:
+    warehouse:
+      dir: file:///tmp/spark-warehouse
+  streaming:
+    batch-duration: 5s
+    checkpoint-dir: file:///tmp/spark-checkpoint
+    
+# InfluxDB Configuration
+influxdb:
+  url: http://localhost:8086
+  token: ${INFLUXDB_TOKEN:admin-token}
+  org: crypto-analytics
+  bucket: trading-data
+
+# Blockchain Configuration
+blockchain:
+  bitcoin:
+    rpc-url: http://localhost:8332
+    username: ${BTC_RPC_USER:bitcoin}
+    password: ${BTC_RPC_PASS:password}
+  ethereum:
+    rpc-url: http://localhost:8545
+    api-key: ${ETH_API_KEY:your-api-key}
+    
+# Machine Learning Configuration
+ml:
+  models:
+    fraud-detection:
+      enabled: true
+      retrain-interval: 1h
+    price-prediction:
+      enabled: true
+      retrain-interval: 6h
+  features:
+    cache-enabled: true
+    cache-ttl: 300s
+    
+# Risk Management Configuration
+risk:
+  var:
+    confidence-level: 0.95
+    time-horizon-days: 1
+  limits:
+    max-position-size: 1000000
+    max-leverage: 10
+  alerts:
+    email-enabled: true
+    slack-enabled: false
+    
+# Security Configuration
+security:
+  jwt:
+    secret: ${JWT_SECRET:crypto-analytics-secret-key-change-in-production}
+    expiration: 86400000 # 24 hours
+  cors:
+    allowed-origins: 
+      - http://localhost:3000
+      - http://localhost:8080
+    allowed-methods: GET,POST,PUT,DELETE,OPTIONS
+    
+# Server Configuration
+server:
+  port: 8080
+  compression:
+    enabled: true
+  http2:
+    enabled: true
+    
+# Management & Monitoring
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,env
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+  tracing:
+    sampling:
+      probability: 1.0
+      
+# Logging Configuration
+logging:
+  level:
+    com.bigdata.crypto: DEBUG
+    org.apache.spark: WARN
+    org.apache.hadoop: WARN
+    org.springframework.kafka: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/crypto-analytics.log
+    
+---
+# Development Profile
+spring:
+  config:
+    activate:
+      on-profile: dev
+  h2:
+    console:
+      enabled: true
+  datasource:
+    url: jdbc:h2:mem:testdb
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: 
+    
+---
+# Production Profile
+spring:
+  config:
+    activate:
+      on-profile: prod
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:crypto_analytics}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  data:
+    mongodb:
+      uri: mongodb://${MONGO_HOST:localhost}:${MONGO_PORT:27017}/${MONGO_DB:crypto_analytics}
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+  kafka:
+    bootstrap-servers: ${KAFKA_BROKERS:localhost:9092}
+    
+logging:
+  level:
+    com.bigdata.crypto: INFO
+    root: WARN

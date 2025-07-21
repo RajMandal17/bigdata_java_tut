@@ -2,342 +2,641 @@
                         INTEGRATION PROJECTS & REAL-WORLD APPLICATIONS
 ================================================================================
 
-WEEK 13-16: Building Complete Big Data Solutions
-
-📋 PROJECT STATUS UPDATE (July 20, 2025):
-==========================================
-✅ Apache Spark Foundation Project - COMPILATION FIXED
-   - Resolved Springfox/SpringDoc dependency conflicts
-   - Fixed missing Spark SQL function imports (Window, UDF classes)
-   - Reduced compilation errors from 56 to 31 (45% improvement)
-   - Core services now compile successfully
-   - Ready for advanced integration projects
-
-🔧 Key Fixes Applied:
-   - Updated SwaggerConfig.java to use SpringDoc OpenAPI 3.0
-   - Added missing imports: org.apache.spark.sql.expressions.Window
-   - Fixed function imports: org.apache.spark.api.java.function.*
-   - Made SparkSQLService.sparkSession public for controller access
-
-📝 Remaining Tasks:
-   - GraphX API compatibility updates (for graph processing features)
-   - Monitoring service API updates for Spark 3.4.1
-   - Complete streaming service refinements
+WEEK 13-16: Building Complete Big Data Solutions with Real Crypto Exchange Integration
 
 ================================================================================
-PROJECT 1: REAL-TIME E-COMMERCE ANALYTICS PLATFORM
+PROJECT 1: REAL-TIME CRYPTO EXCHANGE ANALYTICS PLATFORM
 ================================================================================
+Integration Target: Gitbitex Open Source Cryptocurrency Exchange
+Repository: https://github.com/gitbitex/gitbitex-new
 
 1.1 PROJECT OVERVIEW:
 --------------------
-Build a complete real-time analytics platform for an e-commerce company that:
-• Processes millions of user events and transactions
-• Provides real-time dashboards and insights
-• Detects fraud and anomalies
-• Generates personalized recommendations
-• Scales horizontally to handle peak loads
+Build a comprehensive real-time analytics platform for the Gitbitex cryptocurrency exchange that:
+• Processes millions of trading events, orders, and market data in real-time
+• Provides sophisticated trading analytics and market insights
+• Detects fraud, market manipulation, and suspicious trading patterns
+• Generates algorithmic trading signals and risk assessments
+• Monitors exchange performance and system health
+• Scales to handle 100,000+ orders per second (Gitbitex capacity)
+• Integrates with Gitbitex's in-memory matching engine and event streaming
 
-ARCHITECTURE:
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│   Web App   │───▶│   Kafka     │───▶│   Spark     │───▶│  Databases  │
-│   Mobile    │    │  (Events)   │    │ (Processing)│    │   (Storage) │
-└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
-                           │                  │                  │
-                   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-                   │ Schema      │    │ Streaming   │    │ REST APIs   │
-                   │ Registry    │    │ ML Models   │    │ Dashboard   │
-                   └─────────────┘    └─────────────┘    └─────────────┘
+CRYPTO EXCHANGE ANALYTICS ARCHITECTURE:
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│    Gitbitex     │───▶│     Kafka       │───▶│     Spark       │───▶│   Time Series   │
+│ Matching Engine │    │ (Order Events)  │    │   (Analytics)   │    │   Databases     │
+│   & REST API    │    │ (Trade Events)  │    │ (ML Models)     │    │ (InfluxDB/Redis)│
+└─────────────────┘    └─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │                       │
+         │              ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+         │              │   Schema        │    │   Streaming     │    │   Trading       │
+         └──────────────▶│   Registry      │    │   ML Models     │    │   Dashboard     │
+                        │ (Avro Schemas)  │    │ (Fraud/Risk)    │    │ (React/D3.js)   │
+                        └─────────────────┘    └─────────────────┘    └─────────────────┘
 
-1.2 MICROSERVICES ARCHITECTURE:
+1.2 GITBITEX INTEGRATION SERVICES:
 
 @SpringBootApplication
 @EnableEurekaClient
-public class EventProcessorService {
+@EnableKafka
+public class CryptoAnalyticsService {
     public static void main(String[] args) {
-        SpringApplication.run(EventProcessorService.class, args);
+        SpringApplication.run(CryptoAnalyticsService.class, args);
     }
 }
 
 # application.yml
 spring:
   application:
-    name: event-processor-service
-  cloud:
-    config:
-      uri: http://config-server:8888
-  
+    name: crypto-analytics-service
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: crypto-analytics
+      auto-offset-reset: earliest
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+
+gitbitex:
+  api:
+    base-url: http://127.0.0.1
+    admin-endpoint: /api/admin
+    public-endpoint: /api
+  monitoring:
+    prometheus-url: http://127.0.0.1:7002/actuator/prometheus
+  websocket:
+    endpoint: ws://127.0.0.1/ws
+
 eureka:
   client:
     service-url:
       defaultZone: http://eureka-server:8761/eureka
 
 server:
-  port: 0  # Random port
+  port: 8080
 
-1.3 EVENT INGESTION SERVICE:
-
-// ⚠️ IMPLEMENTATION NOTE: Based on 05_Apache_Spark fixes
-// Ensure proper SpringDoc configuration and Spark dependencies
+1.3 GITBITEX EVENT INGESTION SERVICE:
 
 @RestController
-@RequestMapping("/api/events")
-@CrossOrigin(origins = "*")  // Added for integration projects
-public class EventIngestionController {
+@RequestMapping("/api/crypto-events")
+public class GitbitexEventIngestionController {
     
     @Autowired
-    private EventProducerService eventProducer;
+    private GitbitexApiClient gitbitexClient;
     
     @Autowired
-    private EventValidationService validationService;
+    private CryptoEventProducerService eventProducer;
     
-    // 🔧 LESSON LEARNED: Use SpringDoc annotations instead of Springfox
-    @Operation(summary = "Track user events", description = "Ingests user interaction events for real-time processing")
-    @ApiResponses(value = {
-        @ApiResponse(responseCode = "200", description = "Event accepted"),
-        @ApiResponse(responseCode = "400", description = "Invalid event data"),
-        @ApiResponse(responseCode = "500", description = "Processing error")
-    })
-    @PostMapping("/track")
-    public ResponseEntity<Map<String, Object>> trackEvent(
-            @RequestBody @Valid EventRequest request,
+    @Autowired
+    private OrderBookSnapshotService orderBookService;
+    
+    /**
+     * Webhook endpoint for Gitbitex trading events
+     */
+    @PostMapping("/webhook/trades")
+    public ResponseEntity<Map<String, Object>> handleTradeEvent(
+            @RequestBody @Valid TradeEventRequest request,
             HttpServletRequest httpRequest) {
         
         try {
-            // Enrich event with metadata
-            Event event = enrichEvent(request, httpRequest);
-            
-            // Validate event
-            ValidationResult validation = validationService.validate(event);
-            if (!validation.isValid()) {
-                return ResponseEntity.badRequest()
-                    .body(Map.of("error", "Invalid event", "details", validation.getErrors()));
+            // Validate webhook signature
+            if (!validateWebhookSignature(request, httpRequest)) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("error", "Invalid webhook signature"));
             }
             
-            // Send to Kafka
-            CompletableFuture<Void> future = eventProducer.sendEvent(event);
+            // Enrich trade event with market data
+            TradeEvent tradeEvent = enrichTradeEvent(request);
             
-            // Return immediately (async processing)
+            // Send to Kafka for real-time analytics
+            CompletableFuture<Void> future = eventProducer.sendTradeEvent(tradeEvent);
+            
+            // Update order book snapshot
+            orderBookService.updateFromTrade(tradeEvent);
+            
             return ResponseEntity.ok(Map.of(
-                "status", "accepted",
-                "eventId", event.getEventId(),
-                "timestamp", event.getTimestamp()
+                "status", "processed",
+                "tradeId", tradeEvent.getTradeId(),
+                "timestamp", tradeEvent.getTimestamp(),
+                "symbol", tradeEvent.getSymbol()
             ));
             
         } catch (Exception e) {
-            logger.error("Error processing event", e);
+            logger.error("Error processing trade event", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(Map.of("error", "Processing failed"));
         }
     }
     
-    @PostMapping("/batch")
-    public ResponseEntity<Map<String, Object>> trackBatchEvents(
-            @RequestBody List<@Valid EventRequest> requests) {
+    /**
+     * Webhook endpoint for Gitbitex order events
+     */
+    @PostMapping("/webhook/orders")
+    public ResponseEntity<Map<String, Object>> handleOrderEvent(
+            @RequestBody @Valid OrderEventRequest request) {
         
-        List<Event> events = requests.stream()
-            .map(this::convertToEvent)
-            .collect(Collectors.toList());
-        
-        CompletableFuture<Void> future = eventProducer.sendBatchEvents(events);
-        
-        return ResponseEntity.ok(Map.of(
-            "status", "accepted",
-            "eventCount", events.size(),
-            "batchId", UUID.randomUUID().toString()
-        ));
+        try {
+            OrderEvent orderEvent = convertToOrderEvent(request);
+            
+            // Validate order event
+            ValidationResult validation = validateOrderEvent(orderEvent);
+            if (!validation.isValid()) {
+                return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Invalid order event", "details", validation.getErrors()));
+            }
+            
+            // Send to Kafka
+            CompletableFuture<Void> future = eventProducer.sendOrderEvent(orderEvent);
+            
+            // Update real-time metrics
+            updateRealTimeMetrics(orderEvent);
+            
+            return ResponseEntity.ok(Map.of(
+                "status", "accepted",
+                "orderId", orderEvent.getOrderId(),
+                "timestamp", orderEvent.getTimestamp()
+            ));
+            
+        } catch (Exception e) {
+            logger.error("Error processing order event", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Map.of("error", "Processing failed"));
+        }
     }
     
-    private Event enrichEvent(EventRequest request, HttpServletRequest httpRequest) {
-        return Event.builder()
-            .eventId(UUID.randomUUID().toString())
-            .userId(request.getUserId())
-            .sessionId(request.getSessionId())
-            .eventType(request.getEventType())
-            .timestamp(Instant.now())
-            .data(request.getData())
+    /**
+     * Fetch market data from Gitbitex API
+     */
+    @GetMapping("/market-data/{symbol}")
+    public ResponseEntity<MarketDataResponse> getMarketData(@PathVariable String symbol) {
+        try {
+            MarketData marketData = gitbitexClient.getMarketData(symbol);
+            OrderBook orderBook = gitbitexClient.getOrderBook(symbol, 100);
+            
+            MarketDataResponse response = MarketDataResponse.builder()
+                .symbol(symbol)
+                .price(marketData.getPrice())
+                .volume24h(marketData.getVolume24h())
+                .change24h(marketData.getChange24h())
+                .orderBook(orderBook)
+                .timestamp(Instant.now())
+                .build();
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+    
+    private TradeEvent enrichTradeEvent(TradeEventRequest request) {
+        // Get additional market context
+        MarketData marketData = gitbitexClient.getMarketData(request.getSymbol());
+        
+        return TradeEvent.builder()
+            .tradeId(request.getTradeId())
+            .symbol(request.getSymbol())
+            .side(request.getSide())
+            .quantity(request.getQuantity())
+            .price(request.getPrice())
+            .timestamp(request.getTimestamp())
+            .buyOrderId(request.getBuyOrderId())
+            .sellOrderId(request.getSellOrderId())
+            .marketData(marketData)
             .metadata(Map.of(
-                "userAgent", httpRequest.getHeader("User-Agent"),
-                "ipAddress", getClientIpAddress(httpRequest),
-                "referer", httpRequest.getHeader("Referer"),
-                "source", "web-api"
+                "exchange", "gitbitex",
+                "version", "1.0",
+                "source", "webhook",
+                "marketCap", marketData.getMarketCap(),
+                "volume24h", marketData.getVolume24h()
             ))
             .build();
-    }
-}
-
-1.4 REAL-TIME STREAM PROCESSING:
-
-// 🔧 IMPLEMENTATION NOTE: Apply fixes from 05_Apache_Spark project
-// Key imports needed: Window, functions.*, api.java.function.*
+    }1.4 REAL-TIME CRYPTO ANALYTICS PROCESSOR:
 
 @Component
-public class RealTimeAnalyticsProcessor {
+public class CryptoAnalyticsProcessor {
     
     @Autowired
     private SparkSession sparkSession;
     
-    // 📝 IMPORTANT: Based on our Spark project fixes
-    // Import these for proper compilation:
-    // import org.apache.spark.sql.expressions.Window;
-    // import static org.apache.spark.sql.functions.*;
+    @Autowired
+    private GitbitexMetricsClient metricsClient;
     
     @PostConstruct
-    public void startStreamProcessing() {
-        processUserEvents();
-        processTransactionEvents();
-        detectAnomalies();
+    public void startCryptoStreamProcessing() {
+        processTradingEvents();
+        processOrderBookEvents();
+        detectMarketManipulation();
+        monitorExchangePerformance();
     }
     
-    private void processUserEvents() {
-        Dataset<Row> userEvents = sparkSession
+    /**
+     * Process real-time trading events from Gitbitex
+     */
+    private void processTradingEvents() {
+        Dataset<Row> tradeEvents = sparkSession
             .readStream()
             .format("kafka")
             .option("kafka.bootstrap.servers", "localhost:9092")
-            .option("subscribe", "user-events")
+            .option("subscribe", "gitbitex-trades")
             .load()
-            .select(from_json(col("value").cast("string"), getUserEventSchema()).alias("event"))
-            .select("event.*");
+            .select(from_json(col("value").cast("string"), getTradeEventSchema()).alias("trade"))
+            .select("trade.*");
         
-        // ✅ FIXED: Window functions now properly imported
-        // Real-time user activity metrics
-        Dataset<Row> userMetrics = userEvents
-            .withWatermark("timestamp", "10 minutes")
+        // Real-time trading volume and price analytics
+        Dataset<Row> tradingMetrics = tradeEvents
+            .withWatermark("timestamp", "30 seconds")
             .groupBy(
-                window(col("timestamp"), "5 minutes"),  // Window properly imported
-                col("userId"),
-                col("eventType")
+                window(col("timestamp"), "1 minute"),
+                col("symbol")
             )
-            .count()
-            .alias("eventCount");
+            .agg(
+                count("*").alias("tradeCount"),
+                sum("quantity").alias("volume"),
+                sum(col("quantity").multiply(col("price"))).alias("volumeUSDT"),
+                first("price").alias("openPrice"),
+                last("price").alias("closePrice"),
+                max("price").alias("highPrice"),
+                min("price").alias("lowPrice"),
+                stddev("price").alias("priceVolatility")
+            );
+        
+        // Calculate OHLC candlesticks
+        Dataset<Row> candlesticks = tradingMetrics
+            .withColumn("priceChange", col("closePrice").minus(col("openPrice")))
+            .withColumn("priceChangePercent", 
+                col("priceChange").divide(col("openPrice")).multiply(100));
         
         // Write to Redis for real-time dashboard
-        StreamingQuery userMetricsQuery = userMetrics
+        StreamingQuery tradingMetricsQuery = candlesticks
             .writeStream()
             .outputMode("update")
             .foreachBatch((batchDF, batchId) -> {
-                writeToRedis(batchDF, "user_metrics");
+                writeToRedis(batchDF, "trading_metrics");
+                updateInfluxDB(batchDF, "candlesticks");
             })
+            .trigger(Trigger.ProcessingTime("5 seconds"))
             .start();
         
-        // Session analysis
-        Dataset<Row> sessions = userEvents
-            .withWatermark("timestamp", "30 minutes")
-            .groupByKey(row -> row.getAs("userId"))
-            .mapGroupsWithState(
-                GroupStateTimeout.ProcessingTimeTimeout(),
-                new UserSessionProcessor()
+        // Real-time top gainers/losers
+        Dataset<Row> priceMovers = candlesticks
+            .withWatermark("timestamp", "5 minutes")
+            .groupBy(window(col("timestamp"), "15 minutes"))
+            .agg(
+                collect_list(
+                    struct(col("symbol"), col("priceChangePercent"), col("volume"))
+                ).alias("symbols")
+            )
+            .select(
+                col("window"),
+                expr("sort_array(symbols, false)").alias("topGainers"),
+                expr("sort_array(symbols, true)").alias("topLosers")
             );
         
-        sessions
+        priceMovers
             .writeStream()
             .outputMode("update")
-            .format("mongodb")
-            .option("uri", "mongodb://localhost:27017/analytics.user_sessions")
+            .foreachBatch(this::publishTopMovers)
             .start();
     }
     
-    private void processTransactionEvents() {
-        Dataset<Row> transactions = readTransactionStream();
+    /**
+     * Process order book events for market depth analysis
+     */
+    private void processOrderBookEvents() {
+        Dataset<Row> orderEvents = sparkSession
+            .readStream()
+            .format("kafka")
+            .option("kafka.bootstrap.servers", "localhost:9092")
+            .option("subscribe", "gitbitex-orders")
+            .load()
+            .select(from_json(col("value").cast("string"), getOrderEventSchema()).alias("order"))
+            .select("order.*");
         
-        // Real-time revenue metrics
-        Dataset<Row> revenueMetrics = transactions
-            .withWatermark("timestamp", "5 minutes")
+        // Real-time order book imbalance
+        Dataset<Row> orderBookImbalance = orderEvents
+            .filter(col("status").equalTo("OPEN"))
+            .withWatermark("timestamp", "1 minute")
             .groupBy(
-                window(col("timestamp"), "1 minute"),
-                col("category"),
-                col("region")
+                window(col("timestamp"), "30 seconds"),
+                col("symbol"),
+                col("side")
             )
             .agg(
-                count("*").alias("transactionCount"),
-                sum("amount").alias("totalRevenue"),
-                avg("amount").alias("avgOrderValue")
+                sum("quantity").alias("totalQuantity"),
+                sum(col("quantity").multiply(col("price"))).alias("totalValue"),
+                count("*").alias("orderCount")
+            )
+            .groupBy(col("window"), col("symbol"))
+            .pivot("side", Seq("BUY", "SELL"))
+            .agg(
+                first("totalQuantity").alias("quantity"),
+                first("totalValue").alias("value"),
+                first("orderCount").alias("count")
+            )
+            .withColumn("imbalanceRatio", 
+                col("BUY_quantity").divide(col("SELL_quantity")))
+            .withColumn("spreadPressure",
+                col("BUY_value").minus(col("SELL_value")));
+        
+        // Detect large orders (whale activity)
+        Dataset<Row> whaleOrders = orderEvents
+            .filter(col("quantity").gt(1000).or(
+                col("quantity").multiply(col("price")).gt(100000)
+            ))
+            .withColumn("orderSizeUSD", col("quantity").multiply(col("price")))
+            .withColumn("marketImpact", 
+                when(col("side").equalTo("BUY"), col("orderSizeUSD").multiply(0.001))
+                .otherwise(col("orderSizeUSD").multiply(-0.001))
             );
         
-        // Top products in real-time
-        Dataset<Row> topProducts = transactions
+        // Write whale activity to MongoDB
+        whaleOrders
+            .writeStream()
+            .outputMode("append")
+            .format("mongodb")
+            .option("uri", "mongodb://localhost:27017/crypto.whale_activity")
+            .start();
+    }
+    
+    /**
+     * Detect market manipulation patterns
+     */
+    private void detectMarketManipulation() {
+        Dataset<Row> tradeEvents = readTradeEventsStream();
+        
+        // Wash trading detection
+        Dataset<Row> suspiciousPatterns = tradeEvents
+            .withWatermark("timestamp", "10 minutes")
+            .groupBy(
+                window(col("timestamp"), "5 minutes"),
+                col("symbol"),
+                col("buyOrderId"),
+                col("sellOrderId")
+            )
+            .agg(
+                count("*").alias("tradeCount"),
+                countDistinct("price").alias("uniquePrices"),
+                sum("quantity").alias("totalVolume")
+            )
+            .filter(
+                col("tradeCount").gt(50).and(
+                col("uniquePrices").lt(3)).and(
+                col("totalVolume").gt(10000))
+            )
+            .withColumn("manipulationScore", 
+                col("tradeCount").divide(col("uniquePrices")).multiply(100));
+        
+        // Pump and dump detection
+        Dataset<Row> priceManipulation = tradeEvents
             .withWatermark("timestamp", "15 minutes")
             .groupBy(
                 window(col("timestamp"), "10 minutes"),
-                col("productId")
+                col("symbol")
             )
             .agg(
-                count("*").alias("salesCount"),
-                sum("amount").alias("salesRevenue")
+                first("price").alias("startPrice"),
+                last("price").alias("endPrice"),
+                max("price").alias("peakPrice"),
+                sum("quantity").alias("volume"),
+                count("*").alias("tradeCount")
             )
-            .withColumn("rank", row_number().over(
-                Window.partitionBy("window")
-                      .orderBy(col("salesRevenue").desc())
-            ))
-            .filter(col("rank").leq(10));
+            .withColumn("priceIncrease", 
+                col("peakPrice").divide(col("startPrice")).minus(1).multiply(100))
+            .withColumn("priceDrop",
+                col("peakPrice").divide(col("endPrice")).minus(1).multiply(100))
+            .filter(
+                col("priceIncrease").gt(20).and(
+                col("priceDrop").gt(15)).and(
+                col("volume").gt(5000))
+            );
         
-        // Write to time-series database
-        revenueMetrics
+        // Send manipulation alerts
+        suspiciousPatterns
+            .union(priceManipulation)
             .writeStream()
-            .outputMode("append")
-            .foreachBatch(this::writeToInfluxDB)
+            .outputMode("update")
+            .foreach(new MarketManipulationAlertSender())
             .start();
     }
     
-    private void detectAnomalies() {
-        Dataset<Row> events = readAllEventsStream();
+    /**
+     * Monitor Gitbitex exchange performance using Prometheus metrics
+     */
+    private void monitorExchangePerformance() {
+        // Create streaming DataFrame from Prometheus metrics
+        Dataset<Row> exchangeMetrics = sparkSession
+            .readStream()
+            .format("rate")
+            .option("rowsPerSecond", 1)
+            .load()
+            .withColumn("timestamp", current_timestamp())
+            .withColumn("metrics", callUDF("fetchPrometheusMetrics", lit("http://127.0.0.1:7002/actuator/prometheus")));
         
-        // Detect unusual patterns
-        Dataset<Row> anomalies = events
-            .withWatermark("timestamp", "20 minutes")
-            .groupBy(
-                window(col("timestamp"), "5 minutes"),
-                col("userId")
+        // Parse and process Gitbitex performance metrics
+        Dataset<Row> performanceMetrics = exchangeMetrics
+            .select(
+                col("timestamp"),
+                get_json_object(col("metrics"), "$.gbe_matching_engine_command_processed_total").alias("commandsProcessed"),
+                get_json_object(col("metrics"), "$.gbe_matching_engine_modified_object_created_total").alias("objectsCreated"),
+                get_json_object(col("metrics"), "$.gbe_matching_engine_modified_object_saved_total").alias("objectsSaved"),
+                get_json_object(col("metrics"), "$.gbe_matching_engine_snapshot_taker_modified_objects_queue_size").alias("queueSize")
             )
-            .agg(
-                count("*").alias("eventCount"),
-                countDistinct("eventType").alias("eventTypeCount"),
-                countDistinct("ipAddress").alias("ipCount")
-            )
-            .filter(
-                col("eventCount").gt(1000).or(
-                col("eventTypeCount").gt(20)).or(
-                col("ipCount").gt(5))
-            );
+            .withColumn("processingRate", 
+                col("commandsProcessed").minus(lag("commandsProcessed", 1).over(Window.orderBy("timestamp"))))
+            .withColumn("saveBacklog", 
+                col("objectsCreated").minus(col("objectsSaved")))
+            .withColumn("systemHealth",
+                when(col("processingRate").gt(1000).and(col("saveBacklog").lt(10000)), "HEALTHY")
+                .when(col("processingRate").gt(500), "WARNING")
+                .otherwise("CRITICAL"));
         
-        // Send alerts
-        anomalies
+        // Alert on performance issues
+        performanceMetrics
+            .filter(col("systemHealth").isin("WARNING", "CRITICAL"))
             .writeStream()
-            .outputMode("update")
-            .foreach(new AnomalyAlertSender())
+            .outputMode("append")
+            .foreach(new ExchangePerformanceAlertSender())
+            .start();
+        
+        // Store metrics for historical analysis
+        performanceMetrics
+            .writeStream()
+            .outputMode("append")
+            .format("influxdb")
+            .option("url", "http://localhost:8086")
+            .option("database", "gitbitex_metrics")
             .start();
     }
 }
-
-1.5 FRAUD DETECTION SERVICE:
+1.5 CRYPTO FRAUD DETECTION & RISK MANAGEMENT:
 
 @Service
-public class FraudDetectionService {
+public class CryptoFraudDetectionService {
     
     @Autowired
-    private MLModelService mlModelService;
+    private CryptoMLModelService mlModelService;
     
     @Autowired
-    private RuleEngineService ruleEngine;
+    private TradingRuleEngineService ruleEngine;
+    
+    @Autowired
+    private BlockchainAnalysisService blockchainService;
     
     @Autowired
     private AlertService alertService;
     
-    @KafkaListener(topics = "transactions", groupId = "fraud-detection")
-    public void detectFraud(TransactionEvent transaction) {
+    @KafkaListener(topics = "gitbitex-trades", groupId = "fraud-detection")
+    public void detectTradingFraud(TradeEvent trade) {
         try {
-            // Rule-based detection (fast)
-            RiskScore ruleBasedScore = ruleEngine.evaluateTransaction(transaction);
+            // Multi-layered fraud detection
             
-            // ML-based detection (more accurate)
-            FraudPrediction mlPrediction = mlModelService.predictFraud(transaction);
+            // 1. Rule-based detection (fast, real-time)
+            RiskScore ruleBasedScore = ruleEngine.evaluateTrade(trade);
             
-            // Combine scores
-            FraudAssessment assessment = combineAssessments(ruleBasedScore, mlPrediction);
+            // 2. ML-based anomaly detection
+            AnomalyScore mlAnomalyScore = mlModelService.detectTradeAnomaly(trade);
+            
+            // 3. Blockchain address analysis
+            AddressRiskProfile addressRisk = blockchainService.analyzeAddress(trade.getUserAddress());
+            
+            // 4. Trading pattern analysis
+            TradingBehaviorScore behaviorScore = analyzeTradingBehavior(trade);
+            
+            // Combine all risk factors
+            ComprehensiveRiskAssessment riskAssessment = combineRiskAssessments(
+                ruleBasedScore, mlAnomalyScore, addressRisk, behaviorScore);
             
             // Take action based on risk level
-            handleFraudAssessment(transaction, assessment);
+            handleRiskAssessment(trade, riskAssessment);
             
         } catch (Exception e) {
+            logger.error("Error in fraud detection for trade: " + trade.getTradeId(), e);
+        }
+    }
+    
+    @KafkaListener(topics = "gitbitex-deposits", groupId = "fraud-detection")
+    public void detectDepositFraud(DepositEvent deposit) {
+        try {
+            // Blockchain transaction analysis
+            TransactionRisk txRisk = blockchainService.analyzeTransaction(deposit.getTxHash());
+            
+            // Check for mixing services, dark markets
+            AddressClassification classification = blockchainService.classifyAddress(deposit.getFromAddress());
+            
+            // AML compliance check
+            AMLResult amlResult = performAMLCheck(deposit);
+            
+            if (txRisk.isHighRisk() || classification.isSuspicious() || amlResult.isBlocked()) {
+                alertService.sendFraudAlert(FraudAlert.builder()
+                    .type("SUSPICIOUS_DEPOSIT")
+                    .depositId(deposit.getDepositId())
+                    .userId(deposit.getUserId())
+                    .amount(deposit.getAmount())
+                    .currency(deposit.getCurrency())
+                    .riskFactors(List.of(txRisk.getRiskFactors(), classification.getRiskFactors()))
+                    .recommendedAction("FREEZE_FUNDS")
+                    .build());
+            }
+            
+        } catch (Exception e) {
+            logger.error("Error in deposit fraud detection: " + deposit.getDepositId(), e);
+        }
+    }
+    
+    private TradingBehaviorScore analyzeTradingBehavior(TradeEvent trade) {
+        // Analyze historical trading patterns
+        List<TradeEvent> recentTrades = getRecentTrades(trade.getUserId(), Duration.ofHours(24));
+        
+        // Calculate behavior metrics
+        double tradingFrequency = calculateTradingFrequency(recentTrades);
+        double volumeDeviation = calculateVolumeDeviation(recentTrades);
+        double timePatternAnomaly = analyzeTimePatterns(recentTrades);
+        double priceDeviationScore = analyzePriceDeviations(recentTrades);
+        
+        // Detect specific fraud patterns
+        boolean isPossibleWashTrading = detectWashTrading(recentTrades);
+        boolean isPossibleFrontRunning = detectFrontRunning(trade, recentTrades);
+        boolean isLayering = detectLayering(trade.getUserId());
+        
+        return TradingBehaviorScore.builder()
+            .tradingFrequency(tradingFrequency)
+            .volumeDeviation(volumeDeviation)
+            .timePatternAnomaly(timePatternAnomaly)
+            .priceDeviationScore(priceDeviationScore)
+            .washTradingFlag(isPossibleWashTrading)
+            .frontRunningFlag(isPossibleFrontRunning)
+            .layeringFlag(isLayering)
+            .overallScore(calculateOverallBehaviorScore(tradingFrequency, volumeDeviation, 
+                timePatternAnomaly, priceDeviationScore, isPossibleWashTrading, 
+                isPossibleFrontRunning, isLayering))
+            .build();
+    }
+    
+    private boolean detectWashTrading(List<TradeEvent> trades) {
+        // Group trades by symbol and time windows
+        Map<String, List<TradeEvent>> tradesBySymbol = trades.stream()
+            .collect(Collectors.groupingBy(TradeEvent::getSymbol));
+        
+        for (List<TradeEvent> symbolTrades : tradesBySymbol.values()) {
+            // Look for rapid buy-sell patterns with same quantities
+            for (int i = 0; i < symbolTrades.size() - 1; i++) {
+                TradeEvent trade1 = symbolTrades.get(i);
+                TradeEvent trade2 = symbolTrades.get(i + 1);
+                
+                // Check for wash trading indicators
+                if (isWithinTimeWindow(trade1, trade2, Duration.ofMinutes(5)) &&
+                    areOppositesides(trade1, trade2) &&
+                    areSimilarQuantities(trade1, trade2, 0.05) &&
+                    areSimilarPrices(trade1, trade2, 0.01)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    
+    private boolean detectFrontRunning(TradeEvent currentTrade, List<TradeEvent> recentTrades) {
+        // Look for patterns where small trades precede large trades
+        return recentTrades.stream()
+            .filter(trade -> trade.getTimestamp().isBefore(currentTrade.getTimestamp()))
+            .filter(trade -> trade.getSymbol().equals(currentTrade.getSymbol()))
+            .filter(trade -> Duration.between(trade.getTimestamp(), currentTrade.getTimestamp()).toMinutes() < 2)
+            .anyMatch(trade -> 
+                trade.getQuantity().compareTo(currentTrade.getQuantity().multiply(BigDecimal.valueOf(0.1))) < 0 &&
+                trade.getSide().equals(currentTrade.getSide())
+            );
+    }
+    
+    private void handleRiskAssessment(TradeEvent trade, ComprehensiveRiskAssessment assessment) {
+        switch (assessment.getRiskLevel()) {
+            case HIGH:
+                // Freeze account and alert compliance team
+                freezeUserAccount(trade.getUserId(), "High fraud risk detected");
+                alertService.sendUrgentAlert(createHighRiskAlert(trade, assessment));
+                // Cancel pending orders
+                cancelUserOrders(trade.getUserId());
+                break;
+                
+            case MEDIUM:
+                // Enhanced monitoring and manual review
+                flagForManualReview(trade, assessment);
+                alertService.sendAlert(createMediumRiskAlert(trade, assessment));
+                // Limit trading activity
+                imposeTradingLimits(trade.getUserId());
+                break;
+                
+            case LOW:
+                // Continue monitoring but allow trading
+                logRiskAssessment(trade, assessment);
+                break;
+        }
+        
+        // Store assessment for ML model training
+        storeRiskAssessment(trade, assessment);
+    }
+}
             logger.error("Error in fraud detection for transaction: {}", 
                         transaction.getTransactionId(), e);
         }
@@ -398,306 +697,459 @@ public class RecommendationService {
         // Content-based filtering
         List<String> contentBasedRecs = getContentBasedRecommendations(profile);
         
-        // Trending products
-        List<String> trendingRecs = getTrendingProducts();
-        
-        // Combine and rank recommendations
-        return combineAndRankRecommendations(
-            collaborativeRecs, contentBasedRecs, trendingRecs, count);
-    }
-    
-    private List<String> getCollaborativeRecommendations(String userId, Dataset<Row> interactions) {
-        // Prepare data for ALS
-        Dataset<Row> ratings = interactions
-            .groupBy("userId", "productId")
-            .agg(
-                count("*").alias("interactions"),
-                sum(when(col("eventType").equalTo("purchase"), 5)
-                   .when(col("eventType").equalTo("add_to_cart"), 3)
-                   .when(col("eventType").equalTo("view"), 1)
-                   .otherwise(0)).alias("rating")
-            )
-            .filter(col("rating").gt(0));
-        
-        // String indexing for ALS
-        StringIndexer userIndexer = new StringIndexer()
-            .setInputCol("userId")
-            .setOutputCol("userIndex");
-        
-        StringIndexer productIndexer = new StringIndexer()
-            .setInputCol("productId")
-            .setOutputCol("productIndex");
-        
-        // ALS model
-        ALS als = new ALS()
-            .setMaxIter(10)
-            .setRegParam(0.1)
-            .setUserCol("userIndex")
-            .setItemCol("productIndex")
-            .setRatingCol("rating")
-            .setColdStartStrategy("drop");
-        
-        // Train model
-        Pipeline pipeline = new Pipeline()
-            .setStages(new PipelineStage[]{userIndexer, productIndexer, als});
-        
-        PipelineModel model = pipeline.fit(ratings);
-        
-        // Get recommendations for user
-        Dataset<Row> userRecs = model.transform(
-            sparkSession.createDataFrame(
-                Arrays.asList(RowFactory.create(userId)), 
-                createUserSchema()
-            )
-        ).select("recommendations.productId");
-        
-        return userRecs.as(Encoders.STRING()).collectAsList();
-    }
-    
-    @Async
-    public CompletableFuture<Void> updateRecommendationModels() {
-        // Batch job to update recommendation models
-        Dataset<Row> recentInteractions = loadRecentInteractions();
-        
-        // Update collaborative filtering model
-        updateCollaborativeModel(recentInteractions);
-        
-        // Update content-based model
-        updateContentBasedModel();
-        
-        // Update trending products cache
-        updateTrendingProducts();
-        
-        return CompletableFuture.completedFuture(null);
-    }
-}
-
-================================================================================
-PROJECT 2: IOT SENSOR DATA PROCESSING PLATFORM
-================================================================================
-
-2.1 PROJECT OVERVIEW:
---------------------
-Build a platform to process IoT sensor data from thousands of devices:
-• Real-time monitoring and alerting
-• Predictive maintenance using ML
-• Time-series data analysis
-• Device health monitoring
-• Scalable data ingestion
-
-2.2 IOT DATA INGESTION:
-
-@RestController
-@RequestMapping("/api/iot")
-public class IoTDataController {
-    
-    @Autowired
-    private IoTDataService iotDataService;
-    
-    @PostMapping("/sensors/data")
-    public ResponseEntity<String> ingestSensorData(
-            @RequestBody SensorDataBatch batch,
-            @RequestHeader("Device-ID") String deviceId,
-            @RequestHeader("Device-Type") String deviceType) {
-        
-        try {
-            // Validate device
-            if (!iotDataService.isValidDevice(deviceId)) {
-                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body("Invalid device ID");
-            }
-            
-            // Process batch
-            ProcessingResult result = iotDataService.processSensorBatch(batch, deviceId, deviceType);
-            
-            return ResponseEntity.ok("Processed " + result.getRecordCount() + " records");
-            
-        } catch (Exception e) {
-            logger.error("Error processing sensor data from device: {}", deviceId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body("Processing failed");
-        }
-    }
-}
+1.6 ALGORITHMIC TRADING SIGNAL GENERATION:
 
 @Service
-public class IoTDataService {
-    
-    @Autowired
-    private KafkaTemplate<String, Object> kafkaTemplate;
-    
-    @Autowired
-    private DeviceRegistry deviceRegistry;
-    
-    public ProcessingResult processSensorBatch(SensorDataBatch batch, String deviceId, String deviceType) {
-        List<SensorReading> readings = batch.getReadings();
-        int processedCount = 0;
-        
-        for (SensorReading reading : readings) {
-            try {
-                // Enrich with device metadata
-                EnrichedSensorReading enriched = enrichReading(reading, deviceId, deviceType);
-                
-                // Validate reading
-                if (validateReading(enriched)) {
-                    // Send to appropriate Kafka topic based on sensor type
-                    String topic = getTopicForSensorType(enriched.getSensorType());
-                    kafkaTemplate.send(topic, deviceId, enriched);
-                    processedCount++;
-                }
-                
-            } catch (Exception e) {
-                logger.warn("Failed to process reading from device {}: {}", deviceId, e.getMessage());
-            }
-        }
-        
-        return ProcessingResult.builder()
-            .recordCount(processedCount)
-            .timestamp(Instant.now())
-            .build();
-    }
-    
-    private EnrichedSensorReading enrichReading(SensorReading reading, String deviceId, String deviceType) {
-        DeviceMetadata metadata = deviceRegistry.getDeviceMetadata(deviceId);
-        
-        return EnrichedSensorReading.builder()
-            .deviceId(deviceId)
-            .deviceType(deviceType)
-            .sensorType(reading.getSensorType())
-            .value(reading.getValue())
-            .unit(reading.getUnit())
-            .timestamp(reading.getTimestamp())
-            .location(metadata.getLocation())
-            .facility(metadata.getFacility())
-            .build();
-    }
-}
-
-2.3 REAL-TIME MONITORING:
-
-@Component
-public class IoTStreamProcessor {
+public class CryptoTradingSignalService {
     
     @Autowired
     private SparkSession sparkSession;
     
-    @PostConstruct
-    public void startMonitoring() {
-        monitorTemperatureSensors();
-        monitorVibrationSensors();
-        detectDeviceAnomalies();
+    @Autowired
+    private MLModelService mlModelService;
+    
+    @Autowired
+    private TechnicalAnalysisService technicalAnalysis;
+    
+    @Autowired
+    private GitbitexApiClient gitbitexClient;
+    
+    /**
+     * Generate trading signals using multiple strategies
+     */
+    @Async
+    public CompletableFuture<List<TradingSignal>> generateTradingSignals() {
+        try {
+            // Get market data for all active pairs
+            List<String> tradingPairs = gitbitexClient.getActiveTradingPairs();
+            List<TradingSignal> signals = new ArrayList<>();
+            
+            for (String pair : tradingPairs) {
+                // Technical analysis signals
+                TechnicalSignal technicalSignal = generateTechnicalSignal(pair);
+                
+                // ML-based price prediction
+                PricePrediction mlPrediction = mlModelService.predictPrice(pair);
+                
+                // Market sentiment analysis
+                SentimentScore sentiment = analyzeSentiment(pair);
+                
+                // On-chain analysis (for supported cryptocurrencies)
+                OnChainMetrics onChainData = getOnChainMetrics(pair);
+                
+                // Combine signals
+                TradingSignal combinedSignal = combineSignals(
+                    pair, technicalSignal, mlPrediction, sentiment, onChainData);
+                
+                if (combinedSignal.getConfidence() > 0.7) {
+                    signals.add(combinedSignal);
+                }
+            }
+            
+            return CompletableFuture.completedFuture(signals);
+            
+        } catch (Exception e) {
+            logger.error("Error generating trading signals", e);
+            throw new RuntimeException(e);
+        }
     }
     
-    private void monitorTemperatureSensors() {
-        Dataset<Row> temperatureData = sparkSession
-            .readStream()
-            .format("kafka")
-            .option("kafka.bootstrap.servers", "localhost:9092")
-            .option("subscribe", "temperature-sensors")
-            .load()
-            .select(from_json(col("value").cast("string"), getTemperatureSchema()).alias("data"))
-            .select("data.*");
+    private TechnicalSignal generateTechnicalSignal(String symbol) {
+        // Get historical price data
+        List<OHLCV> priceData = gitbitexClient.getHistoricalData(symbol, "1h", 200);
         
-        // Detect temperature anomalies
-        Dataset<Row> temperatureAlerts = temperatureData
-            .withWatermark("timestamp", "5 minutes")
-            .filter(
-                col("value").gt(80).or(col("value").lt(-10)) // Threshold-based alerts
-            )
-            .withColumn("alertType", lit("TEMPERATURE_ANOMALY"))
-            .withColumn("severity", 
-                when(col("value").gt(100).or(col("value").lt(-20)), "CRITICAL")
-                .when(col("value").gt(90).or(col("value").lt(-15)), "HIGH")
-                .otherwise("MEDIUM"));
+        // Calculate technical indicators
+        RSIIndicator rsi = technicalAnalysis.calculateRSI(priceData, 14);
+        MACDIndicator macd = technicalAnalysis.calculateMACD(priceData, 12, 26, 9);
+        BollingerBands bb = technicalAnalysis.calculateBollingerBands(priceData, 20, 2);
+        SMAIndicator sma50 = technicalAnalysis.calculateSMA(priceData, 50);
+        SMAIndicator sma200 = technicalAnalysis.calculateSMA(priceData, 200);
         
-        // Send alerts
-        temperatureAlerts
-            .writeStream()
-            .outputMode("append")
-            .foreach(new AlertSender())
-            .start();
+        // Generate signals based on technical indicators
+        SignalType rsiSignal = determineRSISignal(rsi.getCurrentValue());
+        SignalType macdSignal = determineMACDSignal(macd);
+        SignalType bbSignal = determineBollingerSignal(bb, priceData.get(priceData.size() - 1));
+        SignalType trendSignal = determineTrendSignal(sma50.getCurrentValue(), sma200.getCurrentValue());
         
-        // Calculate moving averages
-        Dataset<Row> temperatureStats = temperatureData
-            .withWatermark("timestamp", "10 minutes")
-            .groupBy(
-                window(col("timestamp"), "5 minutes"),
-                col("deviceId"),
-                col("facility")
-            )
-            .agg(
-                avg("value").alias("avgTemperature"),
-                min("value").alias("minTemperature"),
-                max("value").alias("maxTemperature"),
-                stddev("value").alias("tempVariability")
-            );
-        
-        // Store in time-series database
-        temperatureStats
-            .writeStream()
-            .outputMode("append")
-            .foreachBatch(this::writeToTimeSeries)
-            .start();
+        // Combine technical signals
+        return TechnicalSignal.builder()
+            .symbol(symbol)
+            .rsiSignal(rsiSignal)
+            .macdSignal(macdSignal)
+            .bollingerSignal(bbSignal)
+            .trendSignal(trendSignal)
+            .overallSignal(combineSignals(rsiSignal, macdSignal, bbSignal, trendSignal))
+            .confidence(calculateTechnicalConfidence(rsiSignal, macdSignal, bbSignal, trendSignal))
+            .timestamp(Instant.now())
+            .build();
     }
     
-    private void monitorVibrationSensors() {
-        Dataset<Row> vibrationData = readVibrationStream();
-        
-        // FFT analysis for frequency domain features
-        UserDefinedFunction fftAnalysis = udf(new FFTAnalysisUDF(), DataTypes.createMapType(DataTypes.StringType, DataTypes.DoubleType));
-        
-        Dataset<Row> vibrationFeatures = vibrationData
-            .withColumn("frequencyFeatures", fftAnalysis.apply(col("vibrationArray")))
-            .select("deviceId", "timestamp", "frequencyFeatures.*");
-        
-        // Predictive maintenance model
-        Dataset<Row> maintenancePredictions = vibrationFeatures
-            .withColumn("maintenanceScore", callUDF("predict_maintenance", 
-                col("peakFrequency"), col("rmsAmplitude"), col("kurtosis")));
-        
-        // High maintenance risk alerts
-        maintenancePredictions
-            .filter(col("maintenanceScore").gt(0.8))
-            .writeStream()
-            .outputMode("append")
-            .foreach(new MaintenanceAlertSender())
-            .start();
+    private SignalType determineRSISignal(double rsiValue) {
+        if (rsiValue < 30) return SignalType.BUY;
+        if (rsiValue > 70) return SignalType.SELL;
+        return SignalType.HOLD;
     }
     
-    private void detectDeviceAnomalies() {
-        Dataset<Row> allSensorData = readAllSensorStreams();
-        
-        // Device health monitoring
-        Dataset<Row> deviceHealth = allSensorData
-            .withWatermark("timestamp", "15 minutes")
-            .groupBy(
-                window(col("timestamp"), "10 minutes"),
-                col("deviceId")
-            )
-            .agg(
-                count("*").alias("readingCount"),
-                countDistinct("sensorType").alias("activeSensors"),
-                max("timestamp").alias("lastReading")
-            )
-            .withColumn("healthScore",
-                when(col("readingCount").lt(10), 0.3)
-                .when(col("activeSensors").lt(3), 0.5)
-                .otherwise(1.0));
-        
-        // Unhealthy devices
-        deviceHealth
-            .filter(col("healthScore").lt(0.7))
-            .writeStream()
-            .outputMode("update")
-            .foreach(new DeviceHealthAlertSender())
-            .start();
+    private SignalType determineMACDSignal(MACDIndicator macd) {
+        if (macd.getMacd() > macd.getSignal() && macd.getPreviousMacd() <= macd.getPreviousSignal()) {
+            return SignalType.BUY; // Bullish crossover
+        }
+        if (macd.getMacd() < macd.getSignal() && macd.getPreviousMacd() >= macd.getPreviousSignal()) {
+            return SignalType.SELL; // Bearish crossover
+        }
+        return SignalType.HOLD;
     }
 }
 
-2.4 PREDICTIVE MAINTENANCE:
+1.7 REAL-TIME RISK MANAGEMENT:
 
 @Service
-public class PredictiveMaintenanceService {
+public class CryptoRiskManagementService {
+    
+    @Autowired
+    private PortfolioService portfolioService;
+    
+    @Autowired
+    private VaRCalculationService varService;
+    
+    @Autowired
+    private PositionMonitoringService positionMonitor;
+    
+    @KafkaListener(topics = "gitbitex-trades", groupId = "risk-management")
+    public void monitorPositionRisk(TradeEvent trade) {
+        try {
+            // Update user portfolio
+            Portfolio portfolio = portfolioService.updatePortfolio(trade);
+            
+            // Calculate real-time risk metrics
+            RiskMetrics riskMetrics = calculateRiskMetrics(portfolio);
+            
+            // Check risk limits
+            checkRiskLimits(trade.getUserId(), portfolio, riskMetrics);
+            
+            // Update position monitoring
+            positionMonitor.updatePosition(trade);
+            
+        } catch (Exception e) {
+            logger.error("Error in risk monitoring for trade: " + trade.getTradeId(), e);
+        }
+    }
+    
+    private RiskMetrics calculateRiskMetrics(Portfolio portfolio) {
+        // Calculate Value at Risk (VaR)
+        double dailyVaR = varService.calculateDailyVaR(portfolio, 0.95);
+        
+        // Calculate portfolio concentration risk
+        double concentrationRisk = calculateConcentrationRisk(portfolio);
+        
+        // Calculate leverage ratio
+        double leverageRatio = calculateLeverageRatio(portfolio);
+        
+        // Calculate correlation risk
+        double correlationRisk = calculateCorrelationRisk(portfolio);
+        
+        return RiskMetrics.builder()
+            .dailyVaR(dailyVaR)
+            .concentrationRisk(concentrationRisk)
+            .leverageRatio(leverageRatio)
+            .correlationRisk(correlationRisk)
+            .overallRiskScore(calculateOverallRiskScore(dailyVaR, concentrationRisk, leverageRatio, correlationRisk))
+            .timestamp(Instant.now())
+            .build();
+    }
+    
+    private void checkRiskLimits(String userId, Portfolio portfolio, RiskMetrics riskMetrics) {
+        UserRiskProfile riskProfile = getUserRiskProfile(userId);
+        
+        // Check VaR limit
+        if (riskMetrics.getDailyVaR() > riskProfile.getMaxDailyVaR()) {
+            sendRiskAlert(userId, "Daily VaR limit exceeded", riskMetrics.getDailyVaR());
+            // Consider position reduction
+            recommendPositionReduction(userId, portfolio);
+        }
+        
+        // Check concentration limit
+        if (riskMetrics.getConcentrationRisk() > riskProfile.getMaxConcentration()) {
+            sendRiskAlert(userId, "Portfolio concentration too high", riskMetrics.getConcentrationRisk());
+        }
+        
+        // Check leverage limit
+        if (riskMetrics.getLeverageRatio() > riskProfile.getMaxLeverage()) {
+            sendRiskAlert(userId, "Leverage limit exceeded", riskMetrics.getLeverageRatio());
+            // Force position closure if necessary
+            enforcePositionClosure(userId, portfolio);
+        }
+    }
+}
+
+1.8 REAL-TIME CRYPTO DASHBOARD:
+
+@RestController
+@RequestMapping("/api/dashboard")
+public class CryptoDashboardController {
+    
+    @Autowired
+    private DashboardDataService dashboardService;
+    
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+    
+    @GetMapping("/market-overview")
+    public ResponseEntity<MarketOverview> getMarketOverview() {
+        try {
+            MarketOverview overview = dashboardService.getMarketOverview();
+            return ResponseEntity.ok(overview);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+    
+    @GetMapping("/trading-volume")
+    public ResponseEntity<List<VolumeData>> getTradingVolume(
+            @RequestParam String timeframe,
+            @RequestParam(required = false) String symbol) {
+        
+        List<VolumeData> volumeData = dashboardService.getTradingVolume(timeframe, symbol);
+        return ResponseEntity.ok(volumeData);
+    }
+    
+    @GetMapping("/price-movements")
+    public ResponseEntity<List<PriceMovement>> getPriceMovements() {
+        List<PriceMovement> movements = dashboardService.getTopPriceMovements();
+        return ResponseEntity.ok(movements);
+    }
+    
+    @GetMapping("/exchange-health")
+    public ResponseEntity<ExchangeHealth> getExchangeHealth() {
+        ExchangeHealth health = dashboardService.getExchangeHealth();
+        return ResponseEntity.ok(health);
+    }
+    
+    @GetMapping("/alerts")
+    public ResponseEntity<List<Alert>> getRecentAlerts(
+            @RequestParam(defaultValue = "24") int hours) {
+        
+        List<Alert> alerts = dashboardService.getRecentAlerts(Duration.ofHours(hours));
+        return ResponseEntity.ok(alerts);
+    }
+    
+    /**
+     * WebSocket endpoint for real-time updates
+     */
+    @MessageMapping("/subscribe")
+    @SendTo("/topic/market-data")
+    public void subscribeToMarketData() {
+        // Handled by WebSocket configuration
+    }
+}
+
+@Service
+public class DashboardDataService {
+    
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+    
+    @Autowired
+    private InfluxDBClient influxDBClient;
+    
+    public MarketOverview getMarketOverview() {
+        // Get real-time data from Redis
+        Map<Object, Object> marketData = redisTemplate.opsForHash().entries("market:overview");
+        
+        return MarketOverview.builder()
+            .totalVolume24h((BigDecimal) marketData.get("totalVolume24h"))
+            .totalTrades24h((Long) marketData.get("totalTrades24h"))
+            .activeUsers24h((Long) marketData.get("activeUsers24h"))
+            .averageOrderSize((BigDecimal) marketData.get("averageOrderSize"))
+            .topGainers(getTopMovers("gainers"))
+            .topLosers(getTopMovers("losers"))
+            .marketSentiment((String) marketData.get("marketSentiment"))
+            .lastUpdated(Instant.now())
+            .build();
+    }
+    
+    public List<VolumeData> getTradingVolume(String timeframe, String symbol) {
+        // Query InfluxDB for historical volume data
+        String query = String.format(
+            "SELECT time, volume, symbol FROM trading_volume " +
+            "WHERE time >= now() - %s %s " +
+            "GROUP BY time(%s), symbol",
+            getTimeRange(timeframe),
+            symbol != null ? "AND symbol = '" + symbol + "'" : "",
+            getGroupByInterval(timeframe)
+        );
+        
+        return influxDBClient.query(query, VolumeData.class);
+    }
+    
+    private List<PriceMovement> getTopMovers(String type) {
+        String key = "market:top_" + type;
+        List<Object> data = redisTemplate.opsForList().range(key, 0, 9);
+        
+        return data.stream()
+            .map(item -> (PriceMovement) item)
+            .collect(Collectors.toList());
+    }
+}
+
+================================================================================
+PROJECT 2: BLOCKCHAIN ANALYTICS & COMPLIANCE PLATFORM
+================================================================================
+
+2.1 PROJECT OVERVIEW:
+--------------------
+Build a comprehensive blockchain analytics platform that integrates with Gitbitex for:
+• Real-time transaction monitoring across multiple blockchains
+• AML/KYC compliance automation
+• Suspicious activity detection
+• Cross-chain transaction tracking
+• Regulatory reporting
+• Wallet clustering and address classification
+
+2.2 BLOCKCHAIN INTEGRATION ARCHITECTURE:
+
+@SpringBootApplication
+@EnableEurekaClient
+public class BlockchainAnalyticsService {
+    public static void main(String[] args) {
+        SpringApplication.run(BlockchainAnalyticsService.class, args);
+    }
+}
+
+# application.yml
+blockchain:
+  nodes:
+    bitcoin:
+      rpc-url: http://localhost:8332
+      username: ${BTC_RPC_USER}
+      password: ${BTC_RPC_PASS}
+    ethereum:
+      rpc-url: http://localhost:8545
+      api-key: ${ETH_API_KEY}
+    litecoin:
+      rpc-url: http://localhost:9332
+      username: ${LTC_RPC_USER}
+      password: ${LTC_RPC_PASS}
+
+compliance:
+  chainalysis:
+    api-url: https://api.chainalysis.com
+    api-key: ${CHAINALYSIS_API_KEY}
+  elliptic:
+    api-url: https://api.elliptic.co
+    api-key: ${ELLIPTIC_API_KEY}
+
+2.3 REAL-TIME BLOCKCHAIN MONITORING:
+
+@Component
+public class BlockchainMonitoringService {
+    
+    @Autowired
+    private BitcoinNodeClient bitcoinClient;
+    
+    @Autowired
+    private EthereumNodeClient ethereumClient;
+    
+    @Autowired
+    private TransactionAnalysisService analysisService;
+    
+    @Scheduled(fixedDelay = 10000) // Every 10 seconds
+    public void monitorBitcoinTransactions() {
+        try {
+            String latestBlockHash = bitcoinClient.getBestBlockHash();
+            Block block = bitcoinClient.getBlock(latestBlockHash);
+            
+            for (Transaction tx : block.getTransactions()) {
+                // Check if transaction involves our exchange addresses
+                if (containsExchangeAddress(tx)) {
+                    processExchangeTransaction(tx, "BTC");
+                }
+                
+                // Check for suspicious patterns
+                if (isSuspiciousTransaction(tx)) {
+                    flagSuspiciousTransaction(tx, "BTC");
+                }
+            }
+            
+        } catch (Exception e) {
+            logger.error("Error monitoring Bitcoin transactions", e);
+        }
+    }
+    
+    @EventListener
+    public void handleEthereumNewBlock(EthereumBlockEvent event) {
+        try {
+            Block block = ethereumClient.getBlockByHash(event.getBlockHash(), true);
+            
+            for (Transaction tx : block.getTransactions()) {
+                // Analyze ETH and ERC-20 transfers
+                analyzeEthereumTransaction(tx);
+                
+                // Check smart contract interactions
+                if (tx.getTo() != null && isKnownContract(tx.getTo())) {
+                    analyzeContractInteraction(tx);
+                }
+            }
+            
+        } catch (Exception e) {
+            logger.error("Error processing Ethereum block", e);
+        }
+    }
+    
+    private void processExchangeTransaction(Transaction tx, String currency) {
+        // Determine if deposit or withdrawal
+        TransactionType type = determineTransactionType(tx);
+        
+        // Get user associated with address
+        String userId = getUserForAddress(getRelevantAddress(tx));
+        
+        if (userId != null) {
+            ExchangeTransactionEvent event = ExchangeTransactionEvent.builder()
+                .transactionHash(tx.getHash())
+                .userId(userId)
+                .currency(currency)
+                .amount(calculateAmount(tx))
+                .type(type)
+                .timestamp(Instant.now())
+                .confirmations(tx.getConfirmations())
+                .build();
+            
+            // Send to Kafka for processing
+            kafkaTemplate.send("exchange-transactions", event);
+            
+            // Update user balance if confirmed
+            if (tx.getConfirmations() >= getRequiredConfirmations(currency)) {
+                updateUserBalance(userId, currency, calculateAmount(tx), type);
+            }
+        }
+    }
+    
+    private boolean isSuspiciousTransaction(Transaction tx) {
+        // Check various suspicious patterns
+        
+        // Large round number amounts
+        if (isRoundNumber(tx.getAmount()) && tx.getAmount().compareTo(BigDecimal.valueOf(10000)) > 0) {
+            return true;
+        }
+        
+        // Multiple small transactions (structuring)
+        if (hasStructuringPattern(tx.getFromAddress(), Duration.ofHours(24))) {
+            return true;
+        }
+        
+        // Known high-risk addresses
+        if (isHighRiskAddress(tx.getFromAddress()) || isHighRiskAddress(tx.getToAddress())) {
+            return true;
+        }
+        
+        // Unusual transaction patterns
+        if (hasUnusualPattern(tx)) {
+            return true;
+        }
+        
+        return false;
+    }
+}
     
     @Autowired
     private SparkSession sparkSession;
@@ -1175,24 +1627,313 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     
+================================================================================
+IMPLEMENTATION TIMELINE & PHASES
+================================================================================
+
+PHASE 1 (Week 13): GITBITEX INTEGRATION FOUNDATION
+-------------------------------------------------
+□ Set up Gitbitex exchange locally (Docker setup)
+□ Implement webhook endpoints for trade/order events
+□ Configure Kafka topics for crypto events
+□ Build basic event ingestion service
+□ Create data models for crypto trading events
+□ Set up Redis for real-time data caching
+□ Implement basic market data API integration
+
+PHASE 2 (Week 14): REAL-TIME ANALYTICS ENGINE
+--------------------------------------------
+□ Implement Spark streaming for trade analytics
+□ Build candlestick generation pipeline
+□ Create volume and price movement analytics
+□ Implement order book imbalance detection
+□ Build whale activity monitoring
+□ Set up InfluxDB for time-series data
+□ Create real-time metrics calculation
+
+PHASE 3 (Week 15): FRAUD DETECTION & RISK MANAGEMENT
+---------------------------------------------------
+□ Implement multi-layered fraud detection
+□ Build wash trading detection algorithms
+□ Create market manipulation detection
+□ Implement real-time risk metrics calculation
+□ Build blockchain address analysis
+□ Set up AML compliance checking
+□ Create alert and notification system
+
+PHASE 4 (Week 16): DASHBOARD & DEPLOYMENT
+----------------------------------------
+□ Build React-based trading dashboard
+□ Implement WebSocket real-time updates
+□ Create comprehensive monitoring system
+□ Set up CI/CD pipeline for deployment
+□ Implement system health monitoring
+□ Build regulatory reporting features
+□ Performance testing and optimization
+
+================================================================================
+DEPLOYMENT AND INFRASTRUCTURE
+================================================================================
+
+4.1 DOCKER COMPOSE SETUP:
+
+# docker-compose.yml
+version: '3.8'
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    depends_on: [zookeeper]
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  gitbitex:
+    image: gitbitex/gitbitex:latest
+    depends_on: [mongo1, mongo2, mongo3]
+    ports:
+      - "80:80"
+      - "7002:7002"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      MONGODB_URI: mongodb://mongo1:27017,mongo2:27017,mongo3:27017/gitbitex?replicaSet=rs0
+
+  mongo1:
+    image: mongo:5.0
+    command: mongod --replSet rs0 --bind_ip_all
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo1_data:/data/db
+
+  mongo2:
+    image: mongo:5.0
+    command: mongod --replSet rs0 --bind_ip_all
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo2_data:/data/db
+
+  mongo3:
+    image: mongo:5.0
+    command: mongod --replSet rs0 --bind_ip_all
+    ports:
+      - "27019:27017"
+    volumes:
+      - mongo3_data:/data/db
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+  influxdb:
+    image: influxdb:2.0
+    ports:
+      - "8086:8086"
+    environment:
+      INFLUXDB_DB: crypto_analytics
+      INFLUXDB_ADMIN_USER: admin
+      INFLUXDB_ADMIN_PASSWORD: password
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+
+  crypto-analytics-service:
+    build: .
+    depends_on: [kafka, redis, influxdb, gitbitex]
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      GITBITEX_URL: http://gitbitex
+      KAFKA_BROKERS: kafka:9092
+      REDIS_URL: redis://redis:6379
+      INFLUXDB_URL: http://influxdb:8086
+    ports:
+      - "8080:8080"
+
+volumes:
+  mongo1_data:
+  mongo2_data:
+  mongo3_data:
+  redis_data:
+  influxdb_data:
+  grafana_data:
+
+4.2 KUBERNETES DEPLOYMENT:
+
+# k8s-crypto-analytics.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crypto-analytics-service
+  labels:
+    app: crypto-analytics
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: crypto-analytics
+  template:
+    metadata:
+      labels:
+        app: crypto-analytics
+    spec:
+      containers:
+      - name: crypto-analytics
+        image: crypto-analytics:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: "kubernetes"
+        - name: KAFKA_BROKERS
+          value: "kafka-service:9092"
+        - name: REDIS_URL
+          value: "redis://redis-service:6379"
+        - name: GITBITEX_URL
+          value: "http://gitbitex-service"
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 120
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: crypto-analytics-service
+spec:
+  selector:
+    app: crypto-analytics
+  ports:
+  - port: 80
+    targetPort: 8080
+  type: LoadBalancer
+
+4.3 CI/CD PIPELINE FOR CRYPTO EXCHANGE:
+
+# .github/workflows/crypto-analytics-ci-cd.yml
+name: Crypto Analytics CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      kafka:
+        image: confluentinc/cp-kafka:latest
+        ports:
+          - 9092:9092
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up JDK 17
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+    
+    - name: Cache Maven dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+    
+    - name: Run unit tests
+      run: mvn clean test
+    
+    - name: Run integration tests
+      run: mvn clean verify -Pintegration-tests
+    
+    - name: Security scan
+      uses: github/super-linter@v4
+      env:
+        DEFAULT_BRANCH: main
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: SonarQube analysis
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      run: mvn sonar:sonar
+
+  build-and-deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v3
+    
     - name: Build Docker image
       run: |
-        docker build -t bigdata-service:${{ github.sha }} .
-        docker tag bigdata-service:${{ github.sha }} bigdata-service:latest
+        docker build -t crypto-analytics:${{ github.sha }} .
+        docker tag crypto-analytics:${{ github.sha }} crypto-analytics:latest
+    
+    - name: Push to registry
+      run: |
+        echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+        docker push crypto-analytics:${{ github.sha }}
+        docker push crypto-analytics:latest
     
     - name: Deploy to staging
       run: |
-        # Deploy to staging environment
-        kubectl set image deployment/bigdata-service bigdata-service=bigdata-service:${{ github.sha }}
+        kubectl set image deployment/crypto-analytics-service crypto-analytics=crypto-analytics:${{ github.sha }}
+        kubectl rollout status deployment/crypto-analytics-service
 
 ================================================================================
-MONITORING AND OBSERVABILITY
+MONITORING AND OBSERVABILITY FOR CRYPTO EXCHANGE
 ================================================================================
 
-5.1 METRICS AND MONITORING:
+5.1 PROMETHEUS METRICS CONFIGURATION:
 
 @Configuration
-public class MonitoringConfig {
+public class CryptoMonitoringConfig {
     
     @Bean
     public MeterRegistry meterRegistry() {
@@ -1200,131 +1941,165 @@ public class MonitoringConfig {
     }
     
     @Bean
-    public TimedAspect timedAspect(MeterRegistry registry) {
-        return new TimedAspect(registry);
+    @Primary
+    public Counter tradingVolumeCounter(MeterRegistry registry) {
+        return Counter.builder("crypto.trading.volume")
+                .description("Total trading volume processed")
+                .tag("exchange", "gitbitex")
+                .register(registry);
+    }
+    
+    @Bean
+    public Timer orderProcessingTimer(MeterRegistry registry) {
+        return Timer.builder("crypto.order.processing.time")
+                .description("Time taken to process orders")
+                .register(registry);
+    }
+    
+    @Bean
+    public Gauge activeUsersGauge(MeterRegistry registry) {
+        return Gauge.builder("crypto.users.active")
+                .description("Number of active users")
+                .register(registry, this, CryptoMonitoringConfig::getActiveUsers);
+    }
+    
+    private double getActiveUsers() {
+        // Implementation to get active user count
+        return userService.getActiveUserCount();
     }
 }
 
-@RestController
-@RequestMapping("/api/analytics")
-@Timed(name = "analytics.requests", description = "Analytics API requests")
-public class AnalyticsController {
+5.2 CUSTOM CRYPTO METRICS:
+
+@Component
+public class CryptoMetricsCollector {
     
-    private final Counter requestCounter;
-    private final Timer requestTimer;
+    private final Counter fraudDetectionCounter;
+    private final Timer blockchainAnalysisTimer;
+    private final Gauge liquidityGauge;
     
-    public AnalyticsController(MeterRegistry meterRegistry) {
-        this.requestCounter = meterRegistry.counter("analytics.requests.total");
-        this.requestTimer = meterRegistry.timer("analytics.request.duration");
-    }
-    
-    @GetMapping("/metrics")
-    public ResponseEntity<Map<String, Object>> getMetrics() {
-        Timer.Sample sample = Timer.start();
-        requestCounter.increment();
+    public CryptoMetricsCollector(MeterRegistry meterRegistry) {
+        this.fraudDetectionCounter = Counter.builder("crypto.fraud.detection")
+                .description("Number of fraud detections")
+                .tag("type", "trading")
+                .register(meterRegistry);
         
-        try {
-            Map<String, Object> metrics = analyticsService.getMetrics();
-            return ResponseEntity.ok(metrics);
-        } finally {
-            sample.stop(requestTimer);
-        }
-    }
-}
-
-5.2 DISTRIBUTED TRACING:
-
-# application.yml
-management:
-  tracing:
-    sampling:
-      probability: 1.0
-  zipkin:
-    tracing:
-      endpoint: http://zipkin:9411/api/v2/spans
-
-@Service
-public class TracedAnalyticsService {
-    
-    @Autowired
-    private Tracer tracer;
-    
-    @NewSpan("analytics.process")
-    public AnalyticsResult processData(@SpanTag("userId") String userId) {
-        Span span = tracer.nextSpan().name("data.processing").start();
+        this.blockchainAnalysisTimer = Timer.builder("crypto.blockchain.analysis.time")
+                .description("Time for blockchain analysis")
+                .register(meterRegistry);
         
-        try (Tracer.SpanInScope ws = tracer.withSpanInScope(span)) {
-            span.tag("user.id", userId);
-            
-            // Processing logic
-            AnalyticsResult result = performAnalysis(userId);
-            
-            span.tag("result.size", String.valueOf(result.getSize()));
-            return result;
-            
-        } catch (Exception e) {
-            span.tag("error", e.getMessage());
-            throw e;
-        } finally {
-            span.end();
-        }
+        this.liquidityGauge = Gauge.builder("crypto.market.liquidity")
+                .description("Market liquidity metric")
+                .register(meterRegistry, this, CryptoMetricsCollector::calculateLiquidity);
+    }
+    
+    public void recordFraudDetection(String fraudType) {
+        fraudDetectionCounter.increment(Tags.of("fraud_type", fraudType));
+    }
+    
+    public void recordBlockchainAnalysis(Duration duration) {
+        blockchainAnalysisTimer.record(duration);
+    }
+    
+    private double calculateLiquidity() {
+        // Implementation to calculate market liquidity
+        return liquidityService.getCurrentLiquidity();
     }
 }
 
 ================================================================================
-PRACTICAL EXERCISES
+PRACTICAL CRYPTO EXCHANGE EXERCISES
 ================================================================================
 
-EXERCISE 1: Build Complete E-commerce Platform
----------------------------------------------
-Create a full-stack application with:
-1. Real-time event tracking
-2. Kafka-based event streaming
-3. Spark-powered analytics
-4. ML-based recommendations
-5. Monitoring and alerting
+EXERCISE 1: Build Complete Crypto Analytics Dashboard
+----------------------------------------------------
+Create a comprehensive real-time dashboard with:
+1. Live trading pairs monitoring with price movements
+2. Order book visualization and depth charts
+3. Trading volume analysis and trending pairs
+4. Whale activity tracking and large order alerts
+5. Market sentiment indicators and social media analysis
+6. Risk metrics dashboard with VaR and exposure limits
+7. Exchange health monitoring with performance metrics
 
-EXERCISE 2: IoT Data Processing System
--------------------------------------
-Implement a system that:
-1. Ingests sensor data from multiple devices
-2. Processes data streams in real-time
-3. Detects anomalies and sends alerts
-4. Provides predictive maintenance
-5. Visualizes data in dashboards
+EXERCISE 2: Implement Advanced Fraud Detection
+----------------------------------------------
+Develop a sophisticated fraud detection system:
+1. Multi-layer fraud detection with rule engine and ML
+2. Wash trading detection using transaction pattern analysis
+3. Market manipulation detection (pump & dump, spoofing)
+4. Cross-exchange arbitrage abuse detection
+5. Blockchain address clustering and risk scoring
+6. Real-time AML compliance with regulatory reporting
+7. Behavioral analytics for user trading patterns
 
-EXERCISE 3: Financial Risk Platform
-----------------------------------
-Build a risk management system:
-1. Real-time portfolio risk calculation
-2. Stress testing capabilities
-3. Regulatory reporting
-4. Market data integration
-5. Risk monitoring dashboards
+EXERCISE 3: Build Algorithmic Trading Platform
+----------------------------------------------
+Create an algorithmic trading system:
+1. Technical analysis indicators (RSI, MACD, Bollinger Bands)
+2. Machine learning price prediction models
+3. Market sentiment analysis integration
+4. Risk management and position sizing algorithms
+5. Backtesting framework with historical data
+6. Real-time strategy execution with Gitbitex API
+7. Performance monitoring and strategy optimization
+
+EXERCISE 4: Implement Cross-Chain Analytics
+------------------------------------------
+Build a multi-blockchain monitoring system:
+1. Bitcoin, Ethereum, and Litecoin transaction monitoring
+2. Cross-chain transaction tracking and correlation
+3. DeFi protocol interaction analysis
+4. Token flow analysis and wallet clustering
+5. Smart contract event monitoring
+6. Compliance reporting for multiple jurisdictions
+7. Real-time blockchain network health monitoring
 
 ================================================================================
-FINAL ASSESSMENT
+FINAL CRYPTO EXCHANGE ASSESSMENT
 ================================================================================
-□ Can design and implement complete Big Data solutions
-□ Understand microservices architecture patterns
-□ Can integrate multiple technologies effectively
-□ Know deployment and DevOps practices
-□ Familiar with monitoring and observability
-□ Can handle real-world scalability challenges
-□ Understand security and compliance requirements
+□ Can integrate with real cryptocurrency exchange APIs (Gitbitex)
+□ Understand real-time crypto market data processing
+□ Can implement sophisticated fraud detection algorithms
+□ Know blockchain analysis and compliance requirements
+□ Can build high-performance trading analytics systems
+□ Understand risk management in crypto trading
+□ Familiar with regulatory compliance and reporting
+□ Can handle crypto-specific scalability challenges
+□ Know WebSocket implementations for real-time updates
+□ Can implement machine learning for crypto market analysis
 
 ================================================================================
-CONGRATULATIONS!
+CONGRATULATIONS ON COMPLETING THE CRYPTO EXCHANGE INTEGRATION!
 ================================================================================
-You have completed the comprehensive Big Data learning journey! You now have
-the skills to build production-ready Big Data applications using:
+You have successfully built a comprehensive cryptocurrency exchange analytics
+platform using real-world integration with Gitbitex! You now have expertise in:
 
-• Java and Spring Boot for robust application development
-• Apache Kafka for real-time data streaming
-• Apache Spark for large-scale data processing
-• MySQL and MongoDB for data storage
-• Machine Learning for intelligent insights
-• DevOps practices for deployment and monitoring
+• Real-time crypto market data processing with Apache Spark
+• Advanced fraud detection for cryptocurrency trading
+• Blockchain analytics and compliance automation
+• High-frequency trading data processing (100,000+ orders/sec)
+• WebSocket-based real-time dashboard development
+• Machine learning for price prediction and anomaly detection
+• Risk management and portfolio analytics for crypto assets
+• Integration with real cryptocurrency exchange infrastructure
 
-Continue practicing with real projects and stay updated with the latest
-developments in the Big Data ecosystem!
+This project demonstrates your ability to work with:
+✓ Production cryptocurrency exchange (Gitbitex)
+✓ Real-time big data processing at scale
+✓ Advanced fraud detection and compliance
+✓ Modern microservices architecture
+✓ DevOps and cloud deployment practices
+
+Continue exploring the rapidly evolving cryptocurrency and blockchain space!
+Build upon this foundation to create your own crypto trading algorithms,
+DeFi analytics platforms, or blockchain compliance solutions.
+
+NEXT STEPS:
+- Explore DeFi protocols and yield farming analytics
+- Implement cross-exchange arbitrage detection
+- Build NFT marketplace analytics
+- Develop crypto derivatives risk management
+- Create institutional-grade compliance reporting
+
+================================================================================

@@ -1,0 +1,311 @@
+version: '3.8'
+
+services:
+  # Zookeeper for Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    hostname: zookeeper
+    container_name: crypto-zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - crypto-network
+
+  # Kafka for event streaming
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    hostname: kafka
+    container_name: crypto-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "9101:9101"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_METRIC_REPORTERS: io.confluent.metrics.reporter.ConfluentMetricsReporter
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_CONFLUENT_METRICS_REPORTER_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_CONFLUENT_METRICS_REPORTER_TOPIC_REPLICAS: 1
+      KAFKA_CONFLUENT_METRICS_ENABLE: 'true'
+      KAFKA_CONFLUENT_SUPPORT_CUSTOMER_ID: anonymous
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    networks:
+      - crypto-network
+
+  # Spark Master
+  spark-master:
+    image: bitnami/spark:3.5
+    hostname: spark-master
+    container_name: crypto-spark-master
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+    networks:
+      - crypto-network
+
+  # Spark Worker
+  spark-worker:
+    image: bitnami/spark:3.5
+    hostname: spark-worker
+    container_name: crypto-spark-worker
+    depends_on:
+      - spark-master
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=2G
+      - SPARK_WORKER_CORES=2
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    networks:
+      - crypto-network
+
+  # MongoDB for document storage
+  mongodb:
+    image: mongo:7.0
+    hostname: mongodb
+    container_name: crypto-mongodb
+    restart: always
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+      MONGO_INITDB_DATABASE: crypto_analytics
+    volumes:
+      - mongo-data:/data/db
+      - ./mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    networks:
+      - crypto-network
+
+  # Redis for caching and real-time data
+  redis:
+    image: redis:7-alpine
+    hostname: redis
+    container_name: crypto-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --requirepass redis123
+    volumes:
+      - redis-data:/data
+    networks:
+      - crypto-network
+
+  # InfluxDB for time series data
+  influxdb:
+    image: influxdb:2.7
+    hostname: influxdb
+    container_name: crypto-influxdb
+    restart: always
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: password123
+      DOCKER_INFLUXDB_INIT_ORG: crypto-analytics
+      DOCKER_INFLUXDB_INIT_BUCKET: crypto-metrics
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: crypto-token-123456789
+    volumes:
+      - influx-data:/var/lib/influxdb2
+    networks:
+      - crypto-network
+
+  # MySQL for relational data
+  mysql:
+    image: mysql:8.0
+    hostname: mysql
+    container_name: crypto-mysql
+    restart: always
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: crypto_analytics
+      MYSQL_USER: crypto_user
+      MYSQL_PASSWORD: crypto_pass
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./sql-init:/docker-entrypoint-initdb.d
+    networks:
+      - crypto-network
+
+  # Gitbitex Exchange (if running locally)
+  gitbitex:
+    image: gitbitex/gitbitex-new:latest
+    hostname: gitbitex
+    container_name: crypto-gitbitex
+    ports:
+      - "8081:8080"
+      - "7002:7001"  # Prometheus metrics
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      MYSQL_URL: jdbc:mysql://mysql:3306/gitbitex
+      MYSQL_USERNAME: crypto_user
+      MYSQL_PASSWORD: crypto_pass
+      REDIS_URL: redis://redis:6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    depends_on:
+      - mysql
+      - redis
+      - kafka
+    networks:
+      - crypto-network
+
+  # Crypto Analytics Platform (our application)
+  crypto-analytics:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    hostname: crypto-analytics
+    container_name: crypto-analytics-app
+    restart: always
+    ports:
+      - "8082:8080"
+      - "8083:8081"  # Additional port for admin endpoints
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      
+      # Database configurations
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/crypto_analytics
+      SPRING_DATASOURCE_USERNAME: crypto_user
+      SPRING_DATASOURCE_PASSWORD: crypto_pass
+      
+      # MongoDB configuration
+      SPRING_DATA_MONGODB_URI: mongodb://admin:password123@mongodb:27017/crypto_analytics?authSource=admin
+      
+      # Redis configuration
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      SPRING_REDIS_PASSWORD: redis123
+      
+      # Kafka configuration
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      
+      # InfluxDB configuration
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_TOKEN: crypto-token-123456789
+      INFLUXDB_ORG: crypto-analytics
+      INFLUXDB_BUCKET: crypto-metrics
+      
+      # Spark configuration
+      SPARK_MASTER_URL: spark://spark-master:7077
+      
+      # Gitbitex integration
+      GITBITEX_API_BASE_URL: http://gitbitex:8080
+      GITBITEX_METRICS_URL: http://gitbitex:7001/actuator/prometheus
+      
+      # JVM options
+      JAVA_OPTS: "-Xmx2g -Xms1g"
+      
+    depends_on:
+      - mysql
+      - mongodb
+      - redis
+      - kafka
+      - influxdb
+      - spark-master
+      - gitbitex
+    volumes:
+      - app-logs:/app/logs
+    networks:
+      - crypto-network
+
+  # Grafana for monitoring and dashboards
+  grafana:
+    image: grafana/grafana:10.2.0
+    hostname: grafana
+    container_name: crypto-grafana
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+      GF_INSTALL_PLUGINS: grafana-piechart-panel,grafana-worldmap-panel
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - influxdb
+    networks:
+      - crypto-network
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    hostname: prometheus
+    container_name: crypto-prometheus
+    restart: always
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    networks:
+      - crypto-network
+
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    hostname: nginx
+    container_name: crypto-nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./ssl:/etc/nginx/ssl
+    depends_on:
+      - crypto-analytics
+      - grafana
+    networks:
+      - crypto-network
+
+networks:
+  crypto-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  mongo-data:
+    driver: local
+  redis-data:
+    driver: local
+  influx-data:
+    driver: local
+  mysql-data:
+    driver: local
+  grafana-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  app-logs:
+    driver: local
