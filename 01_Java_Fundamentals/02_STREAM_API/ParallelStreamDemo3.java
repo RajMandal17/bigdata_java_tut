@@ -14,7 +14,7 @@
 import java.util.*;
 import java.util.stream.*;
 
-public class ParallelStreamDemo {
+public class ParallelStreamDemo3 {
     public static void main(String[] args) {
         List<Integer> numbers = new ArrayList<>();
         for (int i = 0; i < 1_000_000; i++) {
